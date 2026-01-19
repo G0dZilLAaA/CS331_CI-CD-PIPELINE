@@ -1,4 +1,4 @@
-# intelligent deployment policy engine (integrated)
+# intelligent deployment policy engine 
 
 ## overview  
 modern engineering orgs ship fast, ship often, and ship in parallel. that’s great for velocity — until one bad deployment takes down production, breaks compliance rules, or creates an incident that costs real money and trust.
