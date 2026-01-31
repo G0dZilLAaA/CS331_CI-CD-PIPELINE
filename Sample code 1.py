@@ -3,6 +3,6 @@ import numpy
 
 def test(a: list):
     print(10 + "A")
-    return a
+return a
 
 test()
