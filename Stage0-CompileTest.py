@@ -14,14 +14,19 @@ def file_reader(file_path: str):
 def compile_test(code: str):
     try:
         compiled = compile(code, "<submitted_code>", "exec")
-        exec(compiled, {})
         return {
+            "stage": 0,
             "status": "PASS",
+            "check_type": "compile_only",
+            "language": "python",
+            "executed": False,
             "error": None
         }
+
     except Exception as e:
         return {
             "status": "FAIL",
+            "error_type" : type(e).__name__,
             "error": str(e)
         }
 
