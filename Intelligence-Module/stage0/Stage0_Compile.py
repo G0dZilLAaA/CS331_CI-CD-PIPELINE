@@ -1,5 +1,5 @@
 '''
-Stage 0: Compilation / Syntax Check
+Stage0: Compilation / Syntax Check (Multi-Error Aware)
 '''
 import os
 import subprocess
@@ -72,8 +72,14 @@ def file_reader(file_path: str):
             "check_type": "compile_only",
             "language": None,
             "executed": False,
-            "error_type": type(e).__name__,
-            "error": str(e)
+            "total_errors": 1,
+            "errors": [{
+                "file": file_path,
+                "line": None,
+                "column": None,
+                "message": str(e),
+                "error_type": type(e).__name__
+            }]
         }
 
 def infer_language(ext: str):
@@ -87,8 +93,8 @@ def infer_language(ext: str):
         return "java"
     raise ValueError("Unsupported language")
 
-def classify_from_stderr(stderr: str, language: str = None) -> str:
-    msg = stderr.lower()
+def classify_from_stderr(message: str, language: str = None) -> str:
+    msg = message.lower()
 
     for rule in ERROR_RULES:
         if language and language not in rule["languages"]:
@@ -100,62 +106,114 @@ def classify_from_stderr(stderr: str, language: str = None) -> str:
 
     return "CompileError"
 
+def extract_errors_by_language(stderr: str, language: str):
+    if language in ("c", "cpp"):
+        return extract_gcc_errors(stderr, language)
+    elif language == "java":
+        return extract_javac_errors(stderr)
+    else:
+        return []
+
+def extract_gcc_errors(stderr: str, language: str):
+    errors = []
+    pattern = r"^(.*?):\d+:(?:\d+:)?\s*error:\s*(.*)$"
+
+    for line in stderr.splitlines():
+        match = re.match(pattern, line.strip())
+        if match:
+            message = match.group(2).strip()
+            errors.append({
+                "error_type": classify_from_stderr(message, language),
+                "error": message
+            })
+
+    return errors
+
+def extract_javac_errors(stderr: str):
+    errors = []
+    pattern = r"^(.*?):\d+:\s*error:\s*(.*)$"
+
+    for line in stderr.splitlines():
+        match = re.match(pattern, line.strip())
+        if match:
+            message = match.group(2).strip()
+            errors.append({
+                "error_type": classify_from_stderr(message, "java"),
+                "error": message
+            })
+
+    return errors
+
+def standard_pass(language: str):
+    return {
+        "stage": 0,
+        "status": "PASS",
+        "check_type": "compile_only",
+        "language": language,
+        "executed": False,
+        "total_errors": 0,
+        "errors": []
+    }
+
+def standard_fail(language: str, errors: list):
+    return {
+        "stage": 0,
+        "status": "FAIL",
+        "check_type": "compile_only",
+        "language": language,
+        "executed": False,
+        "total_errors": len(errors),
+        "errors": errors
+    }
+
 def compile_test(code: str, language: str):
     try:
         if language == "python":
-            compile(code, "<submitted_code>", "exec")
-
+            try:
+                compile(code, "<submitted_code>", "exec")
+                return standard_pass(language)
+            except SyntaxError as e:
+                return standard_fail(language, [{
+                    "error_type": "SyntaxError",
+                    "error": f"{e.msg} (<submitted_code>, line {e.lineno})"
+                }])
+        
         else:
             with tempfile.NamedTemporaryFile(delete=False, suffix=language_extension(language)) as tmp:
                 tmp.write(code.encode("utf-8"))
                 tmp_path = tmp.name
 
-            run_compiler(tmp_path, language)
+            try:
+                run_compiler(tmp_path, language)
+                return standard_pass(language)
+            finally:
+                os.remove(tmp_path)
 
-        return {
-            "stage": 0,
-            "status": "PASS",
-            "check_type": "compile_only",
-            "language": language,
-            "executed": False,
-            "error": None
-        }
 
     except subprocess.TimeoutExpired:
-        return {
-            "stage": 0,
-            "status": "FAIL",
-            "check_type": "compile_only",
-            "language": language,
-            "executed": False,
+        return standard_fail(language, [{
             "error_type": "TIMEOUT",
             "error": f"Compilation exceeded {TIMEOUT_SEC} seconds"
-        }
+        }])
 
 
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr.strip()
-        error_type = classify_from_stderr(error_msg)
-        return {
-            "stage": 0,
-            "status": "FAIL",
-            "check_type": "compile_only",
-            "language": language,
-            "executed": False,
-            "error_type": error_type,
-            "error": error_msg
-        }
+        errors = extract_errors_by_language(error_msg, language)
+
+        if not errors:
+            errors = [{
+                "error_type": "CompileError",
+                "error": error_msg
+            }]
+
+        return standard_fail(language, errors)
 
     except Exception as e:
-        return {
-            "stage": 0,
-            "status": "FAIL",
-            "check_type": "compile_only",
-            "language": language,
-            "executed": False,
+        return standard_fail(language, [{
             "error_type": type(e).__name__,
             "error": str(e)
-        }
+        }])
 
 def run_compiler(file_path: str, language: str):
     if language == "c":
@@ -190,17 +248,23 @@ def language_extension(language: str):
         "java": ".java"
     }[language]
 
-result_py = file_reader("Sample code 1.py")
-print(result_py)
+# result_py = file_reader("Sample code 1.py")
+# print(result_py)
+#
+# result_c = file_reader("Sample code 1.c")
+# print(result_c)
+#
+# result_cpp = file_reader("Sample code 1.cpp")
+# print(result_cpp)
+#
+# result_java = file_reader("Sample Code 1.java")
+# print(result_java)
+#
+# res_test_code = file_reader("Test Code 1.py")
+# print(res_test_code)
 
-result_c = file_reader("Sample code 1.c")
-print(result_c)
-
-result_cpp = file_reader("Sample code 1.cpp")
-print(result_cpp)
-
-result_java = file_reader("Sample Code 1.java")
-print(result_java)
-
-
-
+# base_dir = os.path.dirname(os.path.abspath(__file__))
+#
+# test_file = os.path.join(base_dir, "Sample Code 1.py")
+# res_test_code = file_reader(test_file)
+# print(res_test_code)
