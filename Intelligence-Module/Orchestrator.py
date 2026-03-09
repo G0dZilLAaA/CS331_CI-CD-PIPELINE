@@ -49,7 +49,7 @@ class Pipeline_Orchestrator:
 
 
 
-file_path = r"C:\Users\hp\Desktop\IIIT Guwahati\CS\CS331(SE LAB)\Stage1\CP Test.py"
+file_path = r"./stage1/Tests/CP Test.py"
 pipeline = Pipeline_Orchestrator(file_path)
 result = pipeline.run_pipeline()
 print(result)
