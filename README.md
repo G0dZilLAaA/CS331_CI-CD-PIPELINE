@@ -1,4 +1,3 @@
-````markdown
 # AI-Based Automated Test Case Generation Integrated with CI/CD
 
 ## 📌 Project Overview
@@ -77,7 +76,7 @@ Files uploaded via the web UI are stored in an `uploads/` folder created automat
 ## 📌 Diagrams
 
 <p align="center">
-  <img src="./use_case_diagram.png" alt="Use Case Diagram" style="max-width:100%;height:auto;">
+  <img src="./Documents/use_case_diagram.png" alt="Use Case Diagram" style="max-width:100%;height:auto;">
 </p>
 
 <p align="center">
@@ -170,9 +169,4 @@ make build
 make up
 ```
 
-If you'd like, I can also:
 
-- Add a small `package.json` placeholder for the Node service and an example `requirements.txt` subset so images install only required packages.
-- Add healthchecks, a reverse-proxy (Traefik / Nginx) or environment-specific compose overrides.
-
-````
