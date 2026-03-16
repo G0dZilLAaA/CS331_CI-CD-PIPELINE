@@ -19,9 +19,6 @@ def apply_action(state, action):
     if action.action_type == Action_Type.GENERATE_TESTS:
         generate_tests(state, action.strategy)
 
-    elif action.action_type == Action_Type.RUN_TEST_SUITE:
-        run_test_suite(state)
-
     elif action.action_type == Action_Type.STOP:
         stop_agent(state)
 
@@ -38,11 +35,15 @@ def generate_tests(state, strategy):
             tests.append(
                 {
                     "strategy": strategy.value,
-                    "input": None
+                    "method_name": None,
+                    "input": None,
+                    "expected_output": None,
+                    "comparison_mode": "exact"
                 }
             )
 
     state.add_generated_tests(tests, strategy.value if strategy else "unknown")
+    run_test_suite(state)
 
 
 def run_test_suite(state):
@@ -58,8 +59,7 @@ def run_test_suite(state):
     if not pending_tests:
         return
 
-    results = run_tests(pending_tests)
-
+    results = run_tests(state.source_code, pending_tests, state.execution_model)
     coverage = compute_coverage(results)
 
     state.update_coverage(
@@ -67,7 +67,7 @@ def run_test_suite(state):
         coverage.get("branch_coverage", 0)
     )
 
-    bugs = detect_bugs(results)
+    bugs = detect_bugs(results, pending_tests)
 
     state.record_exceptions(bugs.get("exceptions", []))
     state.record_failures(bugs.get("failures", []))
