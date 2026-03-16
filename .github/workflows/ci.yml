@@ -1,19 +1,22 @@
-name: CI Pipeline
+name: CI/CD Pipeline
 
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
+
+  workflow_dispatch:
+    inputs:
+      run_tests:
+        description: "Run AI generated tests?"
+        required: true
+        default: "true"
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -21,24 +24,24 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: Install Python dependencies
+      - name: Install Dependencies
         run: |
           pip install -r requirements.txt
 
-      - name: Run Python App Test
+      - name: Run AI Test Generator
         run: |
-          python Intelligence-Module/Orchestrator.py
+          python app.py
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '18'
 
-      - name: Install Node dependencies
+      - name: Install Backend Dependencies
         run: |
           cd Backend/src
           npm install
 
-      - name: Run Node server check
+      - name: Start Backend
         run: |
           node Backend/src/app.js
