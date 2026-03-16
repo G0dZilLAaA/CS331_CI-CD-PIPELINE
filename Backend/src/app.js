@@ -1,6 +1,8 @@
 
 import express from "express";
 import axios from "axios";
+import { triggerPipeline } from "./triggerPipeline.js";
+
 
 const app = express();
 app.use(express.json());
@@ -97,6 +99,25 @@ app.get("/webhooks", (req, res) => {
 
 
 const PORT = process.env.PORT || 3000;
+
+app.post("/run-pipeline", async (req, res) => {
+
+    try {
+
+        const status = await triggerPipeline();
+
+        if (status === 204) {
+            res.json({ message: "Pipeline triggered successfully" });
+        } else {
+            res.json({ message: "Pipeline trigger failed", status });
+        }
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Pipeline trigger failed" });
+    }
+
+});
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
