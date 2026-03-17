@@ -25,12 +25,10 @@ jobs:
           python-version: "3.9"
 
       - name: Install Python Dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Run AI Test Generator
-        run: |
-          python python/app.py
+        run: python python/app.py
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -45,7 +43,7 @@ jobs:
       - name: Start Backend
         run: |
           cd Backend
-          npm start
+          node src/app.js &
           sleep 10
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
