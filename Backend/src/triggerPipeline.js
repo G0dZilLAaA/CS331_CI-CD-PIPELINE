@@ -1,10 +1,7 @@
 import fetch from "node-fetch";
 import dotenv from "dotenv";
 dotenv.config();
-console.log("TOKEN:", process.env.GITHUB_TOKEN);
-console.log("OWNER:", process.env.GITHUB_REPO_OWNER);
-console.log("REPO:", process.env.GITHUB_REPO_NAME);
-console.log("WORKFLOW:", process.env.WORKFLOW_FILE);
+console.log("Running triggerPipeline");
 
 export async function triggerPipeline() {
 

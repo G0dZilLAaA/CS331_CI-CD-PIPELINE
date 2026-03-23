@@ -3,3 +3,5 @@ Backend/.env
 node_modules/
 __pycache__/
 .history
+Frontend/.vite/
+dist/
