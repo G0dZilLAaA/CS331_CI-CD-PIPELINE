@@ -15,6 +15,7 @@ from Stage1.Deterministic.Stage1_Semantic import Semantic_Engine
 from Stage1.Core.State import State
 from Stage1.Core.Environment import Environment
 from Stage1.config import MAX_ITERATIONS
+from Stage1.Algo.hybrid_search import Hybrid_Search
 
 
 def run_stage1(stage0_result: dict, source_code: str):
@@ -28,14 +29,14 @@ def run_stage1(stage0_result: dict, source_code: str):
     # Initialize Agent State
     state = State.from_semantic_output(semantic_output)
 
-    # ---------- Create Environment ----------
-    algorithm = None  # placeholder until algorithms/ is developed
+    # Create Environment
+    algorithm = Hybrid_Search()
     env = Environment(state, algorithm, max_iterations=MAX_ITERATIONS)
 
-    # ---------- Run Agent Loop ----------
+    # Run Agent Loop
     final_state = env.run()
 
-    # ---------- Build Stage-1 Output ----------
+    # Build Stage-1 Output
     stage1_output = {
         "stage": 1,
         "status": "STAGE1_COMPLETE",
@@ -51,7 +52,8 @@ def run_stage1(stage0_result: dict, source_code: str):
             "failures": final_state.failures,
             "incorrect_outputs": final_state.incorrect_outputs
         },
-        "executed_tests": final_state.executed_tests
+        "executed_tests": final_state.executed_tests,
+        "generated_test_cases": final_state.generated_tests
     }
 
     return stage1_output
