@@ -34,6 +34,7 @@ class State:
         # coverage metrics
         self.line_coverage: float = 0.0
         self.branch_coverage: float = 0.0
+        self.all_executed_lines: set = set()
 
         # agent control
         self.iteration: int = 0
@@ -43,7 +44,7 @@ class State:
     def from_semantic_output(cls, semantic_output: Dict[str, Any]):
         language = semantic_output.get("language")
         execution_model = semantic_output.get("execution_model")
-        structural_features = semantic_output.get("structural_features", {})
+        structural_features = semantic_output.get("structural_features") or {}
         source_code = semantic_output.get("normalized_code","")
 
         return cls(
@@ -102,5 +103,6 @@ class State:
             "line_coverage": self.line_coverage,
             "branch_coverage": self.branch_coverage,
             "iteration": self.iteration,
-            "stop_flag": self.stop_flag
+            "stop_flag": self.stop_flag,
+            "all_executed_lines": list(self.all_executed_lines)
         }

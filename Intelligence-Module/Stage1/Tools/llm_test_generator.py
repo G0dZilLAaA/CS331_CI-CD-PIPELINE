@@ -1,5 +1,5 @@
 """
-LLM-based Test Generator for Stage-1.
+LLM-based Tests Generator for Stage-1.
 
 Generates test cases by prompting an LLM with the source code
 and structural context from the Semantic Engine.
@@ -14,7 +14,7 @@ Responsibilities:
   (edge_case, branch, adversarial, stress, constraint)
 - Return structured test objects
 
-Test object contract (callable_method):
+Tests object contract (callable_method):
 {
     "strategy": str,
     "method_name": str,
@@ -22,7 +22,7 @@ Test object contract (callable_method):
     "expected_output": any
 }
 
-Test object contract (stdin_program):
+Tests object contract (stdin_program):
 {
     "strategy": str,
     "method_name": None,
@@ -30,7 +30,7 @@ Test object contract (stdin_program):
     "expected_output": any
 }
 
-Test object contract (script):
+Tests object contract (script):
 {
     "strategy": str,
     "method_name": None,

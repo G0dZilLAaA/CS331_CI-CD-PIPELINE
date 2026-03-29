@@ -42,7 +42,7 @@ def detect_bugs(results, tests):
         if result is None:
             failures.append({
                 "test_id": test.get("test_id", "unknown"),
-                "error": "Test was not executed — result missing",
+                "error": "Tests was not executed — result missing",
                 "status": "missing",
                 "input": test.get("input"),
                 "strategy": test.get("strategy")

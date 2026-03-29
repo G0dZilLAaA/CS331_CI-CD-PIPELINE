@@ -1,5 +1,5 @@
 """
-Stage1 – Semantic Test and Edge Cases analysis is done here
+Stage1 – Semantic Tests and Edge Cases analysis is done here
 """
 import ast
 
