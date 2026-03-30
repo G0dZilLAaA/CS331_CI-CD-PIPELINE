@@ -42,7 +42,7 @@ pip install -r requirements.txt
 python3 webapp.py
 ```
 
-Open http://localhost:5000 in your browser. The UI allows uploading a file or choosing an existing sample from `samples/` and shows the output returned by `process_submission()`.
+Open http://localhost:5000 in your browser. You'll be redirected to login. Sign up first, then sign in to access the dashboard and test runner.
 
 - **Run the CLI runner (prints to terminal):**
 
@@ -63,13 +63,39 @@ Files uploaded via the web UI are stored in an `uploads/` folder created automat
 
 ---
 
-## 🔄 System Flow (concise)
+## Authentication
 
-1. Developer pushes code → Git sends webhook to backend
-2. Backend extracts changed files and metadata
-3. AI generates unit/API test cases for changed code
-4. CI/CD (e.g., GitHub Actions) runs generated tests
-5. Results, logs and coverage are stored and surfaced on the dashboard
+The web UI now requires authentication. Users can sign up as Admin or Developer. Credentials are stored in the PostgreSQL database (or SQLite for local testing).
+
+- **Sign Up:** Create an account with employee ID, name, position (admin/developer), and password.
+- **Sign In:** Log in with employee ID and password.
+- **Dashboard:** Access the main dashboard with links to test runner, webhooks, reports, and settings.
+
+## Testing the Setup
+
+1. **Local Testing (SQLite):**
+   ```bash
+   source cicd/bin/activate
+   python webapp.py
+   ```
+   Open http://localhost:5000, sign up, then log in to access the dashboard.
+
+2. **Docker Testing (PostgreSQL):**
+   ```bash
+   docker compose up --build
+   ```
+   Access http://localhost:5000 for the web UI.
+
+## Current Features
+
+- ✅ User authentication with secure password hashing
+- ✅ Role-based access (Admin/Developer)
+- ✅ Improved dashboard UI with cards and navigation
+- ✅ Code compilation testing for C/C++/Java/Python
+- ✅ File upload and sample testing
+- ✅ Webhook integration with MongoDB storage
+- ✅ Docker containerization for all services
+- ✅ Fixed authentication bugs (UserMixin inheritance)
 
 ---
 
