@@ -1,5 +1,5 @@
 Backend/.env
-
+.example
 node_modules/
 __pycache__/
 .history
