@@ -1,4 +1,5 @@
 Backend/.env
+Intelligence-Module/ .env
 .example
 node_modules/
 __pycache__/
