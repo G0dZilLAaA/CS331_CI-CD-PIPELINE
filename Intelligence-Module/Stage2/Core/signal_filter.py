@@ -28,8 +28,8 @@ Future increment placeholders:
     - Feedback from mutation results to Stage 1 for next pipeline run
 """
 
-from Stage2.Modules.mutation_engine import Mutation_Engine
-from Stage2.Modules.mutation_runner import Mutation_Runner
+from Stage2.Mutation.mutation_engine import Mutation_Engine
+from Stage2.Mutation.mutation_runner import Mutation_Runner
 
 
 class Signal_Filter:
