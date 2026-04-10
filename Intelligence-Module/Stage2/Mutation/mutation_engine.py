@@ -53,13 +53,17 @@ VALIDATE_MUTANTS = True
 
 
 class Mutation_Engine:
-    def __init__(self, operators=None):
+    def __init__(self, operators=None, max_mutants=None):
         """
         Args:
             operators: list of operator instances to use.
                        Defaults to ACTIVE_OPERATORS.
+            max_mutants: maximum number of mutants to generate.
+                         Defaults to MAX_MUTANTS module constant.
+                         Can be overridden by cost_modes via Orchestrator.
         """
         self.operators = operators or ACTIVE_OPERATORS
+        self.max_mutants = max_mutants or MAX_MUTANTS
 
     def generate_mutants(self, source_code):
         """
@@ -95,8 +99,7 @@ class Mutation_Engine:
 
         print(f"    [Mutation Engine] Found {len(all_targets)} possible mutations")
 
-        # sample if too many targets
-        if len(all_targets) > MAX_MUTANTS:
+        if len(all_targets) > self.max_mutants:
             selected = self.select_targets(all_targets)
         else:
             selected = all_targets
@@ -162,8 +165,8 @@ class Mutation_Engine:
             by_operator[name].append(entry)
 
         num_operators = len(by_operator)
-        per_operator = MAX_MUTANTS // num_operators
-        remainder = MAX_MUTANTS % num_operators
+        per_operator = self.max_mutants // num_operators
+        remainder = self.max_mutants % num_operators
 
         selected = []
         leftover_budget = 0
@@ -180,7 +183,7 @@ class Mutation_Engine:
             else:
                 selected.extend(random.sample(targets, budget))
 
-        return selected[:MAX_MUTANTS]
+        return selected[:self.max_mutants]
 
     def validate_compiles(self, source_code):
         """

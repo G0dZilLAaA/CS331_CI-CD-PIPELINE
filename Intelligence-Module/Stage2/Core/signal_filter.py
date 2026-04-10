@@ -33,9 +33,9 @@ from Stage2.Mutation.mutation_runner import Mutation_Runner
 
 
 class Signal_Filter:
-    def __init__(self):
+    def __init__(self, max_mutants=None):
         """No LLM provider needed — Stage 2 is execution-only."""
-        self.mutation_engine = Mutation_Engine()
+        self.mutation_engine = Mutation_Engine(max_mutants=max_mutants)
         self.mutation_runner = Mutation_Runner()
 
     def run(self, validation_state):

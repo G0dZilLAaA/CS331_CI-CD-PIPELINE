@@ -25,7 +25,7 @@ from Stage2.Core.signal_filter import Signal_Filter
 from Stage2.Report.report_builder import Report_Builder
 
 
-def run_stage2(stage1_output):
+def run_stage2(stage1_output, max_mutants=None):
     """
     Entry point for Stage 2 validation.
 
@@ -53,7 +53,7 @@ def run_stage2(stage1_output):
     print(f"    Incorrect outputs: {len(validation_state.incorrect_outputs)}")
 
     # ── Step 2: Run signal filter (hallucination removal + mutation testing) ──
-    signal_filter = Signal_Filter()
+    signal_filter = Signal_Filter(max_mutants=max_mutants)
     signal_filter.run(validation_state)
 
     # ── Step 3: Build final report ──

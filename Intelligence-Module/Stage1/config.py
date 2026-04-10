@@ -53,3 +53,40 @@ TEMPERATURE_EXPONENT = 1.5
 
 # Number of stagnant iterations before forced random pick
 STAGNATION_THRESHOLD = 3
+
+# Oracle validation Layer 1 - Stage1
+# Master toggle — when False, no verification calls are made
+ENABLE_TRIANGULATION = True
+
+# Temperature for verification LLM call
+VERIFICATION_TEMPERATURE = 1.0
+
+# Maximum character length for optional user context
+# Keeps user input bounded without eating into primary prompt space
+# 2000 chars ≈ 1-2 paragraphs of guidance — sufficient for focus hints
+USER_CONTEXT_MAX_LENGTH = 2000
+
+# ──────────────────────────────────────────────
+# Runtime Override Support
+# ──────────────────────────────────────────────
+# These values can be overridden by cost_modes via Orchestrator.
+# Call apply_mode_overrides() before pipeline starts.
+
+def apply_mode_overrides(mode_config):
+    """
+    Overrides Stage 1 config values with mode-specific values.
+
+    Args:
+        mode_config: dict from cost_modes.get_mode()
+                     Keys: max_iterations, max_tests_per_call, gemini_model
+    """
+    global MAX_ITERATIONS, MAX_TESTS_PER_CALL, GEMINI_MODEL
+
+    if mode_config.get("max_iterations") is not None:
+        MAX_ITERATIONS = mode_config["max_iterations"]
+
+    if mode_config.get("max_tests_per_call") is not None:
+        MAX_TESTS_PER_CALL = mode_config["max_tests_per_call"]
+
+    if mode_config.get("gemini_model") is not None:
+        GEMINI_MODEL = mode_config["gemini_model"]
