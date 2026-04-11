@@ -560,6 +560,108 @@ class Semantic_Engine:
 
         return entry_points
 
+    def extract_operation_vocabulary(self, tree):
+        """
+        Extract all callable operations present in the source code.
+        This is the reference vocabulary for dynamic test signatures.
+
+        Captures:
+        - Built-in function calls (len, sorted, print, range, etc.)
+        - Method calls on objects (.append, .pop, .sort, etc.)
+        - Standard library calls (heapq.heappush, math.log, etc.)
+        - User-defined function calls
+        - Operators that map to dunder methods ([], +, *, in, etc.)
+        - Assert statements
+        - Yield / yield from (generator behavior)
+        - Raise statements (exception throwing)
+        """
+        operations = set()
+
+        for node in ast.walk(tree):
+            # Direct function calls: len(), sorted(), print()
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name):
+                    operations.add(("builtin_or_func", node.func.id))
+                # Method calls: obj.append(), heapq.heappush()
+                elif isinstance(node.func, ast.Attribute):
+                    operations.add(("method", node.func.attr))
+                    # Also capture module.method pattern
+                    if isinstance(node.func.value, ast.Name):
+                        operations.add(("qualified", f"{node.func.value.id}.{node.func.attr}"))
+
+            # Subscript operations: obj[key], obj[i:j]
+            elif isinstance(node, ast.Subscript):
+                if isinstance(node.slice, ast.Slice):
+                    operations.add(("operator", "slice"))
+                else:
+                    operations.add(("operator", "index"))
+
+            # Binary operators: +, -, *, /, //, %, **
+            elif isinstance(node, ast.BinOp):
+                op_name = type(node.op).__name__.lower()
+                operations.add(("operator", op_name))
+
+            # Comparison operators: ==, !=, <, >, <=, >=, in, not in, is
+            elif isinstance(node, ast.Compare):
+                for op in node.ops:
+                    op_name = type(op).__name__.lower()
+                    operations.add(("operator", op_name))
+
+            # Boolean operators: and, or
+            elif isinstance(node, ast.BoolOp):
+                op_name = type(node.op).__name__.lower()
+                operations.add(("operator", op_name))
+
+            # Unary operators: not, -, +, ~
+            elif isinstance(node, ast.UnaryOp):
+                op_name = type(node.op).__name__.lower()
+                operations.add(("operator", op_name))
+
+            # Assert statements
+            elif isinstance(node, ast.Assert):
+                operations.add(("control", "assert"))
+
+            # Yield / yield from (generator behavior)
+            elif isinstance(node, ast.Yield):
+                operations.add(("control", "yield"))
+            elif isinstance(node, ast.YieldFrom):
+                operations.add(("control", "yield_from"))
+
+            # Raise statements
+            elif isinstance(node, ast.Raise):
+                exc_type = None
+                if node.exc:
+                    if isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name):
+                        exc_type = node.exc.func.id
+                    elif isinstance(node.exc, ast.Name):
+                        exc_type = node.exc.id
+                operations.add(("control", f"raise_{exc_type or 'unknown'}"))
+
+            # Await expressions
+            elif isinstance(node, ast.Await):
+                operations.add(("control", "await"))
+
+            # Starred expressions (unpacking)
+            elif isinstance(node, ast.Starred):
+                operations.add(("operator", "unpack"))
+
+            # Comprehensions (as operations, not just count)
+            elif isinstance(node, ast.ListComp):
+                operations.add(("control", "listcomp"))
+            elif isinstance(node, ast.DictComp):
+                operations.add(("control", "dictcomp"))
+            elif isinstance(node, ast.SetComp):
+                operations.add(("control", "setcomp"))
+            elif isinstance(node, ast.GeneratorExp):
+                operations.add(("control", "genexp"))
+
+        # Convert to serializable list of dicts
+        vocab = []
+        for category, name in sorted(operations):
+            vocab.append({"category": category, "name": name})
+
+        return vocab
+
     def extract_structural_features(self):
         tree = self.context.get("ast_tree")
 
@@ -653,8 +755,8 @@ class Semantic_Engine:
             "assert_statements": self.extract_assert_statements(tree),
             "import_analysis": self.analyze_imports(tree),
             "async_patterns": self.detect_async_patterns(tree),
-            "entry_points": self.detect_entry_points(tree)
-
+            "entry_points": self.detect_entry_points(tree),
+            "operation_vocabulary": self.extract_operation_vocabulary(tree)
         }
 
         self.context["structural_features"] = features

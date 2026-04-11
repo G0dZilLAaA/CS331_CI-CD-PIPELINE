@@ -72,6 +72,24 @@ USER_CONTEXT_MAX_LENGTH = 2000
 # These values can be overridden by cost_modes via Orchestrator.
 # Call apply_mode_overrides() before pipeline starts.
 
+# ── Test Signature ──
+# Maximum vocabulary size after pruning (top-K by doc frequency)
+MAX_VOCAB_SIZE = 25
+
+# Minimum document frequency to retain an operation in vocabulary
+MIN_DOC_FREQ = 2
+
+# Component weights for signature vector
+WEIGHT_TFIDF = 1.0
+WEIGHT_FAILURE = 2.0
+
+# Pruned vocab threshold below which group features are included
+MIN_VOCAB_FOR_GROUPS = 15
+
+# ── Test Clustering ──
+# Hard upper bound on cluster count (None = no cap, uses sqrt(n) only)
+MAX_CLUSTER_CAP = None
+
 def apply_mode_overrides(mode_config):
     """
     Overrides Stage 1 config values with mode-specific values.

@@ -54,7 +54,8 @@ or Source + Constraint File)
 """
 import json
 from Stage1.Providers.gemini_provider import Gemini_Provider
-from Stage1.config import MAX_TESTS_PER_CALL
+from Stage1.config import MAX_TESTS_PER_CALL, USER_CONTEXT_MAX_LENGTH
+
 
 
 class LLM_Test_Generator:
@@ -62,13 +63,14 @@ class LLM_Test_Generator:
         self.provider = Gemini_Provider()
 
     def generate_tests(
-        self,
-        source_code,
-        execution_model,
-        structural_features,
-        strategy,
-        existing_tests=None,
-        previous_failures=None
+            self,
+            source_code,
+            execution_model,
+            structural_features,
+            strategy,
+            existing_tests=None,
+            previous_failures=None,
+            user_context=None
     ):
         prompt = self.build_prompt(
             source_code,
@@ -76,21 +78,24 @@ class LLM_Test_Generator:
             structural_features,
             strategy,
             existing_tests,
-            previous_failures
+            previous_failures,
+            user_context
         )
         response = self.provider.generate(prompt)
-        tests = self.parse_response(response, strategy,execution_model)
+        tests = self.parse_response(response, strategy, execution_model)
+
 
         return tests
 
     def build_prompt(
-        self,
-        source_code,
-        execution_model,
-        structural_features,
-        strategy,
-        existing_tests,
-        previous_failures
+            self,
+            source_code,
+            execution_model,
+            structural_features,
+            strategy,
+            existing_tests,
+            previous_failures,
+            user_context=None
     ):
 
         format_block = self.get_format_block(execution_model, strategy)
@@ -129,6 +134,17 @@ Rules:
 
         if previous_failures:
             prompt += f"\nPrevious failures:\n{json.dumps(previous_failures, indent=2)}\n"
+
+        if user_context:
+            if len(user_context) > USER_CONTEXT_MAX_LENGTH:
+                user_context = user_context[:USER_CONTEXT_MAX_LENGTH]
+                print(f"    [LLM Generator] User context truncated to {USER_CONTEXT_MAX_LENGTH} chars")
+
+            prompt += f"""
+        Additional context from the developer:
+        \"{user_context}\"
+        Use this to guide which aspects of the code to focus your tests on.
+        """
 
         return prompt
 
