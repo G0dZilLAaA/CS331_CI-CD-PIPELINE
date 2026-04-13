@@ -28,6 +28,8 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run AI Tester
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python run_target_orchestrator.py
 
       - name: Build Successful Message
