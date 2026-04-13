@@ -34,7 +34,7 @@ class Mutation_Runner:
     def __init__(self):
         pass
 
-    def run_against_mutants(self, mutants, tests, execution_model, original_results):
+    def run_against_mutants(self, mutants, tests, execution_model, original_results, language="python"):
         """
         Runs test suite against each mutant and compares to original results.
 
@@ -79,7 +79,7 @@ class Mutation_Runner:
 
             # run all tests against this mutant
             try:
-                mutant_exec_results, _ = run_tests(mutant_code, tests, execution_model)
+                mutant_exec_results, _ = run_tests(mutant_code, tests, execution_model, language=language)
             except Exception as e:
                 # mutant crashed during setup — counts as killed by all tests
                 print(f"    [Mutation Runner] Mutant {mutant_id} crashed: {e}")
