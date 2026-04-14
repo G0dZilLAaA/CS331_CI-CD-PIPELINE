@@ -31,10 +31,10 @@ class C_Relational_Swap(TS_Operator_Base):
 
     def find_targets(self, tree, source_bytes):
         targets = []
-        for node in self._walk(tree.root_node):
+        for node in self.walk(tree.root_node):
             if node.type == "binary_expression":
                 for child in node.children:
-                    text = self._node_text(child, source_bytes)
+                    text = self.node_text(child, source_bytes)
                     if text in RELATIONAL_SWAPS:
                         for swap_to in RELATIONAL_SWAPS[text]:
                             targets.append({
@@ -47,7 +47,7 @@ class C_Relational_Swap(TS_Operator_Base):
         return targets
 
     def apply(self, source_bytes, target):
-        return self._replace_bytes(
+        return self.replace_bytes(
             source_bytes, target["start_byte"], target["end_byte"], target["replacement"]
         )
 
@@ -61,10 +61,10 @@ class C_Arithmetic_Swap(TS_Operator_Base):
 
     def find_targets(self, tree, source_bytes):
         targets = []
-        for node in self._walk(tree.root_node):
+        for node in self.walk(tree.root_node):
             if node.type == "binary_expression":
                 for child in node.children:
-                    text = self._node_text(child, source_bytes)
+                    text = self.node_text(child, source_bytes)
                     if text in ARITHMETIC_SWAPS:
                         for swap_to in ARITHMETIC_SWAPS[text]:
                             targets.append({
@@ -77,7 +77,7 @@ class C_Arithmetic_Swap(TS_Operator_Base):
         return targets
 
     def apply(self, source_bytes, target):
-        return self._replace_bytes(
+        return self.replace_bytes(
             source_bytes, target["start_byte"], target["end_byte"], target["replacement"]
         )
 
@@ -91,11 +91,11 @@ class C_Conditional_Negate(TS_Operator_Base):
 
     def find_targets(self, tree, source_bytes):
         targets = []
-        for node in self._walk(tree.root_node):
+        for node in self.walk(tree.root_node):
             if node.type == "if_statement":
                 for child in node.children:
                     if child.type == "parenthesized_expression":
-                        inner = self._node_text(child, source_bytes)
+                        inner = self.node_text(child, source_bytes)
                         targets.append({
                             "start_byte": child.start_byte,
                             "end_byte": child.end_byte,
@@ -106,7 +106,7 @@ class C_Conditional_Negate(TS_Operator_Base):
         return targets
 
     def apply(self, source_bytes, target):
-        return self._replace_bytes(
+        return self.replace_bytes(
             source_bytes, target["start_byte"], target["end_byte"], target["replacement"]
         )
 
@@ -120,9 +120,9 @@ class C_Boundary_Mutate(TS_Operator_Base):
 
     def find_targets(self, tree, source_bytes):
         targets = []
-        for node in self._walk(tree.root_node):
+        for node in self.walk(tree.root_node):
             if node.type == "number_literal":
-                text = self._node_text(node, source_bytes)
+                text = self.node_text(node, source_bytes)
                 try:
                     value = int(text)
                 except ValueError:
@@ -145,7 +145,7 @@ class C_Boundary_Mutate(TS_Operator_Base):
         return targets
 
     def apply(self, source_bytes, target):
-        return self._replace_bytes(
+        return self.replace_bytes(
             source_bytes, target["start_byte"], target["end_byte"], str(target["mutated_value"])
         )
 
@@ -159,12 +159,12 @@ class C_Return_Mutate(TS_Operator_Base):
 
     def find_targets(self, tree, source_bytes):
         targets = []
-        for node in self._walk(tree.root_node):
+        for node in self.walk(tree.root_node):
             if node.type == "return_statement":
                 children = [c for c in node.children if c.type not in ("return", ";")]
                 if children:
                     val_node = children[0]
-                    text = self._node_text(val_node, source_bytes)
+                    text = self.node_text(val_node, source_bytes)
                     if text != "0":
                         targets.append({
                             "start_byte": val_node.start_byte,
@@ -175,7 +175,7 @@ class C_Return_Mutate(TS_Operator_Base):
         return targets
 
     def apply(self, source_bytes, target):
-        return self._replace_bytes(
+        return self.replace_bytes(
             source_bytes, target["start_byte"], target["end_byte"], "0"
         )
 
