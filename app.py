@@ -1,5 +1,6 @@
 from pathlib import Path
 from flask import Flask, Response, render_template_string, send_file
+import os
 
 app = Flask(__name__)
 
@@ -37,10 +38,12 @@ def index():
 
     return render_template_string(BASE_TEMPLATE, code=code)
 
+
 @app.route("/download")
 def download_target():
     if not TARGET_FILE.exists():
         return Response("TARGET_CODE/target.py not found", status=404)
+
     return send_file(
         TARGET_FILE,
         as_attachment=True,
@@ -48,5 +51,14 @@ def download_target():
         mimetype="text/x-python",
     )
 
+
+# 🔥 Health check route (important for Render)
+@app.route("/health")
+def health():
+    return {"status": "ok"}
+
+
+# ⚠️ Only used for local development
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
