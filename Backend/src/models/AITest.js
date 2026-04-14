@@ -6,7 +6,7 @@ const aiTestSchema = new mongoose.Schema({
   position: { type: String, default: "developer" },
   testType: {
     type: String,
-    enum: ["upload", "sample", "ci_trigger"],
+    enum: ["upload", "sample", "ci_trigger", "deploy_trigger"],
     required: true
   },
   filename: { type: String },

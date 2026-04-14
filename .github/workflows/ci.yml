@@ -30,7 +30,7 @@ jobs:
       - name: Run AI Tester
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python run_target_orchestrator.py
+        run: python Intelligence-Module/Orchestrator.py TARGET_CODE/target.py
 
       - name: Build Successful Message
         if: success()

@@ -441,6 +441,40 @@ function githubRepoEnv() {
   return { owner, name, token };
 }
 
+const DEFAULT_RENDER_URL = process.env.RENDER_URL || "https://cs331-ci-cd-pipeline.onrender.com";
+
+async function getGitHubFileInfo(owner, name, path, token) {
+  const url = `https://api.github.com/repos/${owner}/${name}/contents/${encodeURIComponent(path)}`;
+  try {
+    const response = await axios.get(url, {
+      headers: githubHeaders(token),
+    });
+    return response.data;
+  } catch (error) {
+    if (error.response && error.response.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function createOrUpdateGitHubFile(owner, name, path, content, branch, message, token, sha) {
+  const url = `https://api.github.com/repos/${owner}/${name}/contents/${encodeURIComponent(path)}`;
+  const body = {
+    message,
+    content: Buffer.from(content, 'utf8').toString('base64'),
+    branch,
+  };
+  if (sha) {
+    body.sha = sha;
+  }
+
+  const response = await axios.put(url, body, {
+    headers: githubHeaders(token),
+  });
+  return response.data;
+}
+
 const PORT = process.env.PORT || 3000;
 
 app.post("/run-pipeline", authenticateToken, async (req, res) => {
@@ -494,6 +528,56 @@ app.post("/trigger-ci", authenticateToken, async (req, res) => {
   } catch (error) {
     console.error("CI trigger error:", error);
     res.status(500).json({ error: "Error triggering CI pipeline" });
+  }
+});
+
+app.post("/deploy", authenticateToken, async (req, res) => {
+  try {
+    const env = githubRepoEnv();
+    if (!env) {
+      return res.status(503).json({
+        error: "GitHub deployment configuration missing. Set GITHUB_REPO_OWNER, GITHUB_REPO_NAME, and GITHUB_TOKEN.",
+      });
+    }
+
+    const { owner, name, token } = env;
+    const deployPath = ".github/deploy-trigger.txt";
+    const commitMessage = `Trigger Render deployment from CI dashboard by ${req.user.employeeId}`;
+    const fileContent = `Deploy triggered by ${req.user.name} (${req.user.employeeId}) on ${new Date().toISOString()}\n`;
+
+    const existing = await getGitHubFileInfo(owner, name, deployPath, token);
+    const deploymentResponse = await createOrUpdateGitHubFile(
+      owner,
+      name,
+      deployPath,
+      fileContent,
+      'main',
+      commitMessage,
+      token,
+      existing?.sha
+    );
+
+    const commitUrl = deploymentResponse?.content?.html_url || null;
+    const aiTest = new AITest({
+      employeeId: req.user.employeeId,
+      employeeName: req.user.name,
+      position: req.user.position,
+      testType: 'deploy_trigger',
+      result: 'triggered',
+      output: `Deployment commit created in GitHub: ${commitUrl ?? deployPath}`,
+      uploadedBy: req.user.id
+    });
+
+    await aiTest.save();
+
+    res.json({
+      message: "Deployment commit created. Render should auto-deploy shortly.",
+      deployUrl: DEFAULT_RENDER_URL,
+      commitUrl,
+    });
+  } catch (error) {
+    console.error("Deployment error:", error.response?.data || error.message);
+    res.status(500).json({ error: "Failed to create deployment commit" });
   }
 });
 

@@ -113,39 +113,47 @@ function AITester({ user }) {
       {result && (
         <div className="test-result">
           <h3>✅ Test Results</h3>
-          <div className="result-content">
-            <div className="result-item">
-              <strong>File:</strong> {result.originalName}
+          <div className="result-grid">
+            <div className="result-card">
+              <span className="card-label">File</span>
+              <span className="card-value">{result.originalName}</span>
             </div>
-            <div className="result-item">
-              <strong>Status:</strong>
+
+            <div className="result-card">
+              <span className="card-label">Status</span>
               <span className={`result-status ${(result.aiResult || result.result)?.toLowerCase()}`}>
                 {result.aiResult || result.result || "UNKNOWN"}
               </span>
             </div>
+
             {result.message && (
-              <div className="result-item">
-                <strong>Message:</strong> {result.message}
-              </div>
-            )}
-            {result.aiError && (
-              <div className="result-item error">
-                <strong>⚠️ Error Details:</strong> {result.aiError}
-              </div>
-            )}
-            {result.aiOutput && (
-              <div className="result-item">
-                <strong>Pipeline Output:</strong>
-                <pre className="output-text">{result.aiOutput}</pre>
-              </div>
-            )}
-            {result.jsonResults && Object.keys(result.jsonResults).length > 0 && (
-              <div className="result-item">
-                <strong>Detailed Analysis:</strong>
-                <pre className="json-results">{JSON.stringify(result.jsonResults, null, 2)}</pre>
+              <div className="result-card full-width">
+                <span className="card-label">Message</span>
+                <span className="card-value">{result.message}</span>
               </div>
             )}
           </div>
+
+          {result.aiError && (
+            <div className="result-alert">
+              <strong>⚠️ Error Details:</strong>
+              <p>{result.aiError}</p>
+            </div>
+          )}
+
+          {result.aiOutput && (
+            <div className="result-section">
+              <h4>Pipeline Output</h4>
+              <pre className="output-text">{result.aiOutput}</pre>
+            </div>
+          )}
+
+          {result.jsonResults && Object.keys(result.jsonResults).length > 0 && (
+            <div className="result-section">
+              <h4>Detailed Analysis</h4>
+              <pre className="json-results">{JSON.stringify(result.jsonResults, null, 2)}</pre>
+            </div>
+          )}
         </div>
       )}
     </div>
