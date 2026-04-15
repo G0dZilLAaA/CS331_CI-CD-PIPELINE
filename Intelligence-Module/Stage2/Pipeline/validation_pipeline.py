@@ -53,7 +53,8 @@ def run_stage2(stage1_output, max_mutants=None):
     print(f"    Incorrect outputs: {len(validation_state.incorrect_outputs)}")
 
     # ── Step 2: Run signal filter (hallucination removal + mutation testing) ──
-    signal_filter = Signal_Filter(max_mutants=max_mutants)
+    language = stage1_output.get("language", "python")
+    signal_filter = Signal_Filter(max_mutants=max_mutants, language=language)
     signal_filter.run(validation_state)
 
     # ── Step 3: Build final report ──

@@ -33,10 +33,11 @@ from Stage2.Mutation.mutation_runner import Mutation_Runner
 
 
 class Signal_Filter:
-    def __init__(self, max_mutants=None):
+    def __init__(self, max_mutants=None, language="python"):
         """No LLM provider needed — Stage 2 is execution-only."""
-        self.mutation_engine = Mutation_Engine(max_mutants=max_mutants)
+        self.mutation_engine = Mutation_Engine(max_mutants=max_mutants, language=language)
         self.mutation_runner = Mutation_Runner()
+        self.language = language
 
     def run(self, validation_state):
         """
@@ -77,7 +78,7 @@ class Signal_Filter:
         # ── Step 4: Generate mutants ──
         print(f"\n[Signal Filter] Running Layer 3 — mutation testing")
 
-        mutants = self.mutation_engine.generate_mutants(source_code)
+        mutants = self.mutation_engine.generate_mutants(source_code, language=self.language)
 
         if not mutants:
             print("    No mutants generated — skipping mutation runner")
@@ -85,7 +86,7 @@ class Signal_Filter:
 
         # ── Step 5: Get original results for comparison ──
         original_results = self.get_original_results(
-            source_code, tests, execution_model
+            source_code, tests, execution_model, self.language
         )
 
         if not original_results:
@@ -94,7 +95,7 @@ class Signal_Filter:
 
         # ── Step 6: Run mutation testing ──
         mutation_results = self.mutation_runner.run_against_mutants(
-            mutants, tests, execution_model, original_results
+            mutants, tests, execution_model, original_results, language=self.language
         )
 
         validation_state.mutation_results = mutation_results
@@ -103,7 +104,7 @@ class Signal_Filter:
         print(f"\n[Signal Filter] Layer 3 complete")
         print(f"    {validation_state.summary()}")
 
-    def get_original_results(self, source_code, tests, execution_model):
+    def get_original_results(self, source_code, tests, execution_model, language="python"):
         """
         Runs test suite against original code to get baseline results.
 
@@ -114,7 +115,7 @@ class Signal_Filter:
         from Stage1.Tools.test_executor import run_tests
 
         try:
-            results, _ = run_tests(source_code, tests, execution_model)
+            results, _ = run_tests(source_code, tests, execution_model, language=language)
             return results
         except Exception as e:
             print(f"    [Signal Filter] Original execution failed: {e}")

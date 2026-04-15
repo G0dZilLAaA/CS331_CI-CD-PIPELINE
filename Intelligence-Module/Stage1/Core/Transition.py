@@ -78,7 +78,8 @@ def generate_tests(state, strategy):
             user_context=state.user_context,
             iteration=iteration,
             compressed_source=compressed_source,
-            cluster_representatives=cluster_representatives
+            cluster_representatives=cluster_representatives,
+            language=state.language
         )
 
     except (ValueError, RuntimeError) as e:
@@ -105,9 +106,11 @@ def run_test_suite(state):
     if not pending_tests:
         return
 
-    results, executed_lines = run_tests(state.source_code, pending_tests, state.execution_model)
+    results, executed_lines = run_tests(state.source_code, pending_tests, state.execution_model,
+                                        language=state.language)
     state.all_executed_lines.update(executed_lines)
-    coverage = compute_coverage(state.source_code, state.all_executed_lines, state.executable_lines)
+    coverage = compute_coverage(state.source_code, state.all_executed_lines, state.executable_lines,
+                                language=state.language)
 
     state.update_coverage(
         coverage.get("line_coverage", 0),

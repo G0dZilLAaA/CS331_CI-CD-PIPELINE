@@ -2,20 +2,13 @@
 Mutation Engine for Stage-2 (Layer 3)
 
 Takes source code and generates N mutated versions using
-operators from mutant_operators.py.
+language-specific operators.
+
+Two mutation paths:
+    Python:     ast.parse → operator mutates tree → ast.unparse
+    Non-Python: tree-sitter parse → operator finds byte targets → string surgery
 
 Each mutant has exactly ONE change from the original code.
-This ensures that if a test detects the mutant (kills it),
-we know exactly which code behavior that test validates.
-
-Flow:
-    1. Parse source code into AST
-    2. Iterate ACTIVE_OPERATORS, collect all possible targets
-    3. Sample up to MAX_MUTANTS if too many targets exist
-    4. For each selected target, apply operator to get mutated AST
-    5. Unparse mutated AST back to source code
-    6. Validate mutant compiles
-    7. Return list of valid mutant dicts
 
 Output per mutant:
     {
@@ -25,66 +18,67 @@ Output per mutant:
         "description": str,
         "source_code": str (the mutated source)
     }
-
-Current increment:
-    - Python only (uses ast.parse / ast.unparse)
-    - ast.unparse requires Python 3.9+
-
-Future increment placeholders:
-    - Multi-language support via external parsers
-    - Equivalent mutant detection (skip mutants that don't change behavior)
-    - Higher-order mutants (multiple mutations per mutant)
 """
 
 import ast
 import random
+import subprocess
+import tempfile
+import os
 
-from Stage2.Mutation.mutant_operators import ACTIVE_OPERATORS
+from Stage2.Mutation.Operators.operator_factory import get_operators
 
 
-# Config — to be added to Stage2_Validation/config.py
-# Maximum number of mutants to generate
-# Caps cost: each mutant is executed against the full test suite
 MAX_MUTANTS = 15
-
-# If True, skip mutants that fail to compile
-# Should always be True — invalid mutants waste execution time
 VALIDATE_MUTANTS = True
+COMPILE_TIMEOUT = 3
 
 
 class Mutation_Engine:
-    def __init__(self, operators=None, max_mutants=None):
+    def __init__(self, operators=None, max_mutants=None, language="python"):
         """
         Args:
-            operators: list of operator instances to use.
-                       Defaults to ACTIVE_OPERATORS.
-            max_mutants: maximum number of mutants to generate.
-                         Defaults to MAX_MUTANTS module constant.
-                         Can be overridden by cost_modes via Orchestrator.
+            operators: list of operator instances (auto-resolved from language if None)
+            max_mutants: cap on mutant count
+            language: target language for parsing + validation
         """
-        self.operators = operators or ACTIVE_OPERATORS
+        self.language = language
+        self.operators = operators or get_operators(language)
         self.max_mutants = max_mutants or MAX_MUTANTS
 
-    def generate_mutants(self, source_code):
+    def generate_mutants(self, source_code, language=None):
         """
         Generates mutated versions of the source code.
 
         Args:
-            source_code: the original Python source code string
+            source_code: the original source code string
+            language: override language (uses self.language if None)
 
         Returns:
-            list of mutant dicts, each with:
-                id, operator, line, description, source_code
+            list of mutant dicts
         """
+        lang = language or self.language
+
+        # Re-resolve operators if language was overridden
+        if lang != self.language:
+            self.operators = get_operators(lang)
+            self.language = lang
+
+        if lang == "python":
+            return self._generate_python(source_code)
+        else:
+            return self._generate_treesitter(source_code, lang)
+
+    # ── Python Path (ast-based) ──
+
+    def _generate_python(self, source_code):
         try:
             tree = ast.parse(source_code)
         except SyntaxError as e:
-            print(f"    [Mutation Engine] Failed to parse source: {e}")
+            print(f"    [Mutation Engine] Failed to parse Python source: {e}")
             return []
 
-        # collect all possible mutation targets across all operators
         all_targets = []
-
         for operator in self.operators:
             targets = operator.find_targets(tree)
             for target in targets:
@@ -99,12 +93,8 @@ class Mutation_Engine:
 
         print(f"    [Mutation Engine] Found {len(all_targets)} possible mutations")
 
-        if len(all_targets) > self.max_mutants:
-            selected = self.select_targets(all_targets)
-        else:
-            selected = all_targets
+        selected = self.select_targets(all_targets) if len(all_targets) > self.max_mutants else all_targets
 
-        # generate mutants
         mutants = []
         mutant_id = 0
 
@@ -113,50 +103,177 @@ class Mutation_Engine:
             target = entry["target"]
 
             mutant_tree = operator.apply(tree, target)
-
             if mutant_tree is None:
                 continue
 
-            # convert back to source code
             try:
                 mutant_code = ast.unparse(mutant_tree)
             except Exception as e:
                 print(f"    [Mutation Engine] Unparse failed: {e}")
                 continue
 
-            # validate compilation
-            if VALIDATE_MUTANTS:
-                if not self.validate_compiles(mutant_code):
-                    continue
-
-            description = operator.describe_mutation(target)
+            if VALIDATE_MUTANTS and not self._validate_python(mutant_code):
+                continue
 
             mutants.append({
                 "id": mutant_id,
                 "operator": operator.name,
                 "line": target.get("line"),
-                "description": description,
+                "description": operator.describe_mutation(target),
                 "source_code": mutant_code
             })
-
             mutant_id += 1
 
         print(f"    [Mutation Engine] Generated {len(mutants)} valid mutants")
         return mutants
 
+    # ── Tree-sitter Path (string surgery) ──
+
+    def _generate_treesitter(self, source_code, language):
+        tree, source_bytes = self._parse_treesitter(source_code, language)
+        if tree is None:
+            print(f"    [Mutation Engine] Failed to parse {language} source")
+            return []
+
+        all_targets = []
+        for operator in self.operators:
+            targets = operator.find_targets(tree, source_bytes)
+            for target in targets:
+                all_targets.append({
+                    "operator": operator,
+                    "target": target
+                })
+
+        if not all_targets:
+            print("    [Mutation Engine] No mutation targets found")
+            return []
+
+        print(f"    [Mutation Engine] Found {len(all_targets)} possible mutations")
+
+        selected = self.select_targets(all_targets) if len(all_targets) > self.max_mutants else all_targets
+
+        mutants = []
+        mutant_id = 0
+
+        for entry in selected:
+            operator = entry["operator"]
+            target = entry["target"]
+
+            mutant_code = operator.apply(source_bytes, target)
+            if mutant_code is None:
+                continue
+
+            if VALIDATE_MUTANTS and not self._validate_compiled(mutant_code, language):
+                continue
+
+            mutants.append({
+                "id": mutant_id,
+                "operator": operator.name,
+                "line": target.get("line"),
+                "description": operator.describe_mutation(target),
+                "source_code": mutant_code
+            })
+            mutant_id += 1
+
+        print(f"    [Mutation Engine] Generated {len(mutants)} valid mutants")
+        return mutants
+
+    def _parse_treesitter(self, source_code, language):
+        """Parse source using tree-sitter, return (tree, source_bytes)."""
+        try:
+            from tree_sitter import Language, Parser
+
+            if language in ("javascript", "typescript"):
+                if language == "typescript":
+                    import tree_sitter_typescript as ts_lang
+                    lang = Language(ts_lang.language_typescript())
+                else:
+                    import tree_sitter_javascript as ts_lang
+                    lang = Language(ts_lang.language())
+            elif language == "java":
+                import tree_sitter_java as ts_lang
+                lang = Language(ts_lang.language())
+            elif language in ("c", "cpp"):
+                import tree_sitter_c as ts_lang
+                lang = Language(ts_lang.language())
+            else:
+                print(f"    [Mutation Engine] No tree-sitter grammar for {language}")
+                return None, None
+
+            parser = Parser()
+            parser.language = lang
+            source_bytes = source_code.encode("utf-8")
+            tree = parser.parse(source_bytes)
+
+            if tree and tree.root_node:
+                return tree, source_bytes
+            return None, None
+
+        except Exception as e:
+            print(f"    [Mutation Engine] Tree-sitter parse error: {e}")
+            return None, None
+
+    # ── Validation ──
+
+    def _validate_python(self, source_code):
+        try:
+            compile(source_code, "<mutant>", "exec")
+            return True
+        except SyntaxError:
+            return False
+
+    def _validate_compiled(self, source_code, language):
+        """Validate mutant compiles for non-Python languages."""
+        suffix_map = {
+            "javascript": ".js",
+            "typescript": ".ts",
+            "java": ".java",
+            "c": ".c",
+            "cpp": ".cpp"
+        }
+        compiler_map = {
+            "javascript": ["node", "--check"],
+            "typescript": ["tsc", "--noEmit", "--allowJs", "--esModuleInterop"],
+            "java": ["javac"],
+            "c": ["gcc", "-fsyntax-only"],
+            "cpp": ["g++", "-fsyntax-only"]
+        }
+
+        suffix = suffix_map.get(language)
+        compiler_cmd = compiler_map.get(language)
+
+        if not suffix or not compiler_cmd:
+            return True  # Can't validate, assume valid
+
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', suffix=suffix,
+                                             delete=False, encoding='utf-8') as tmp:
+                tmp.write(source_code)
+                tmp_path = tmp.name
+
+            subprocess.run(
+                compiler_cmd + [tmp_path],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=COMPILE_TIMEOUT
+            )
+            return True
+
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            return False
+
+        except Exception:
+            return True  # Can't validate, assume valid
+
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    # ── Target Selection (unchanged) ──
+
     def select_targets(self, all_targets):
-        """
-        Selects up to MAX_MUTANTS targets from all possibilities.
-
-        Strategy: proportional sampling across operators.
-        Each operator gets a fair share of the budget so that
-        mutants aren't dominated by one operator type
-        (e.g., boundary_mutate on a file with many constants).
-
-        If an operator has fewer targets than its share,
-        the remaining budget redistributes to others.
-        """
-        # group by operator
         by_operator = {}
         for entry in all_targets:
             name = entry["operator"].name
@@ -185,49 +302,10 @@ class Mutation_Engine:
 
         return selected[:self.max_mutants]
 
-    def validate_compiles(self, source_code):
-        """
-        Checks that the mutated source code is valid Python.
-        Uses compile() — same approach as Stage0_Compile.py for Python.
-        """
-        try:
-            compile(source_code, "<mutant>", "exec")
-            return True
-        except SyntaxError:
-            return False
-
-    # ──────────────────────────────────────────────
-    # Placeholders: Future Increment
-    # ──────────────────────────────────────────────
+    # ── Placeholders ──
 
     def detect_equivalent_mutants(self, original_code, mutant_code):
-        """
-        Future: Detect mutants that don't change observable behavior.
-        Equivalent mutants waste execution time and inflate
-        survival counts, making tests look weaker than they are.
-
-        Approaches:
-            - Constraint-based equivalence checking
-            - Heuristic pattern matching (e.g., dead code mutations)
-            - LLM-assisted equivalence judgment
-        """
-        # TODO: implement equivalence detection
         raise NotImplementedError
 
     def generate_higher_order_mutants(self, source_code, order=2):
-        """
-        Future: Combine multiple single mutations into one mutant.
-        Higher-order mutants test whether the test suite detects
-        subtle compound faults that single mutations miss.
-        """
-        # TODO: select N targets, apply all to same tree
-        raise NotImplementedError
-
-    def generate_mutants_multilang(self, source_code, language):
-        """
-        Future: Support C/CPP/Java mutation via external parsers.
-            - C/CPP: pycparser or tree-sitter
-            - Java: javalang or tree-sitter
-        """
-        # TODO: language-specific parser + unparser
         raise NotImplementedError
