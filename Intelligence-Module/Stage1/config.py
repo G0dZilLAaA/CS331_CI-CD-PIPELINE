@@ -16,6 +16,51 @@ TEST_TIMEOUT = 10
 # Only waits for OS to flush queue data — child is already dead by this point
 QUEUE_DRAIN_TIMEOUT = 1
 
+# ── Language-Specific Execution Timeouts ──
+# Compiled languages need more time for compile + run
+# These override TEST_TIMEOUT per language when applicable
+LANGUAGE_TIMEOUTS = {
+    "python": 10,
+    "javascript": 10,
+    "typescript": 15,      # extra time for tsc transpilation
+    "java": 20,            # javac compile + JVM startup is slow
+    "c": 10,
+    "cpp": 10,
+}
+
+# ── Stage 0: Compilation Timeout ──
+# Separate from execution timeout — syntax checking is faster
+COMPILE_TIMEOUT = 3
+
+# ── External Tool Paths ──
+# Override these if tools are not on system PATH
+TOOL_PATHS = {
+    "node": "node",
+    "tsc": "tsc",
+    "javac": "javac",
+    "java": "java",
+    "gcc": "gcc",
+    "g++": "g++",
+    "gcov": "gcov",
+    "c8": "c8",
+}
+
+# ── Supported Languages ──
+# Master list of languages the pipeline can process
+SUPPORTED_LANGUAGES = {"python", "javascript", "typescript", "java", "c", "cpp"}
+
+# ── Language Extension Mapping ──
+# Used by Orchestrator for language inference when dev team doesn't provide language
+EXTENSION_MAP = {
+    ".py": "python",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".java": "java",
+    ".c": "c",
+    ".cpp": "cpp",
+}
 
 # LLM Provider:-
 # Gemini model identifier
