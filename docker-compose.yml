@@ -42,7 +42,6 @@ services:
     ports:
       - "3000:3000"
     environment:
-      MONGO_URI: mongodb://mongo:27017/cicd_app
       MONGODB_URI: mongodb://mongo:27017/cicd_app
       PORT: "3000"
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}

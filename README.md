@@ -128,7 +128,6 @@ The Intelligence Module provides advanced AI-powered testing capabilities using 
 Create a `.env` file in the project root based on `.env.example`:
 ```
 GEMINI_API_KEY=your_gemini_api_key_here
-MONGO_URI=your_mongodb_connection_string_here
 MONGODB_URI=your_mongodb_connection_string_here
 GITHUB_TOKEN=your_github_token_here
 GITHUB_REPO_OWNER=your_github_owner_here
@@ -280,5 +279,4 @@ After installing, re-run:
 make build
 make up
 ```
-
 

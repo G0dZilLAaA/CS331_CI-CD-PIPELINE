@@ -40,7 +40,7 @@ function Login({ onLogin }) {
         onLogin(data.user, data.token);
         navigate("/");
       } else {
-        setError(data.message || "Login failed");
+        setError(data.error || "Login failed");
       }
     } catch (err) {
       setError("Network error. Please try again.");

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Start development environment: MongoDB, Backend + Frontend with one command
+# Start development environment: Backend + Frontend with one command
 # Backend: http://localhost:8000
 # Frontend (Vite): http://localhost:5173 — API proxied via /api
-# MongoDB: mongodb://localhost:27017/cicd_app
+# MongoDB: uses MONGODB_URI from your environment/.env
 
 set -euo pipefail
 
@@ -29,70 +29,21 @@ success() {
   echo -e "${GREEN}[SUCCESS]${NC} $1"
 }
 
-# Check if MongoDB is running
-check_mongodb() {
-  # Try to verify MongoDB is already running using mongosh/mongo CLI
-  if mongosh --eval "db.adminCommand('ping')" --quiet 2>/dev/null; then
-    success "MongoDB is running"
+# Ensure Atlas/local Mongo connection string is configured
+check_mongodb_uri() {
+  if [ -n "${MONGODB_URI:-}" ]; then
+    success "Using configured MongoDB connection string from MONGODB_URI"
     return 0
   fi
-  
-  if mongo --eval "db.adminCommand('ping')" --quiet 2>/dev/null; then
-    success "MongoDB is running"
+
+  if [ -f ".env" ] && grep -q '^MONGODB_URI=' ".env"; then
+    success "Using MongoDB connection string from .env"
     return 0
   fi
-  
-  log "MongoDB not running. Checking for Docker..."
-  if ! command -v docker &> /dev/null; then
-    error "Docker not found. Please start MongoDB manually:"
-    error "  Option 1: docker compose up mongo -d"
-    error "  Option 2: Start MongoDB service directly"
-    return 1
-  fi
-  
-  log "Starting MongoDB via Docker..."
-  # Try with docker compose (with or without sudo)
-  local docker_cmd="docker"
-  if ! docker ps > /dev/null 2>&1; then
-    log "Docker requires sudo, attempting with sudo..."
-    docker_cmd="sudo docker"
-  fi
-  
-  if $docker_cmd compose up mongo -d 2>/dev/null; then
-    log "MongoDB container started, waiting for it to be ready..."
-    sleep 5
-    
-    # Verify MongoDB container is actually running
-    if $docker_cmd ps | grep -q "mongo.*27017"; then
-      log "MongoDB container is running on port 27017"
-      
-      # Try to ping with mongosh/mongo if available
-      if mongosh --eval "db.adminCommand('ping')" --quiet 2>/dev/null || mongo --eval "db.adminCommand('ping')" --quiet 2>/dev/null; then
-        success "MongoDB is responding to connections"
-      else
-        # Container is running but can't connect via CLI tools
-        # This is usually because mongosh/mongo CLI is not installed locally
-        # But MongoDB is running in container, so proceed anyway
-        log "MongoDB CLI tools not available locally, but container is running"
-        log "Backend will connect to MongoDB via connection string"
-      fi
-      
-      success "MongoDB started and ready"
-      return 0
-    else
-      error "MongoDB container failed to start"
-      error "Trying to see logs..."
-      $docker_cmd compose logs mongo 2>/dev/null | tail -10 || true
-      return 1
-    fi
-  else
-    error "Failed to execute: $docker_cmd compose up mongo -d"
-    error "Troubleshooting:"
-    error "  1. Make sure docker-compose.yml exists in current directory"
-    error "  2. Fix Docker permissions: sudo usermod -aG docker \$USER"
-    error "  3. Test Docker: $docker_cmd ps"
-    return 1
-  fi
+
+  error "MONGODB_URI is not set."
+  error "Add your MongoDB Atlas connection string to .env or export MONGODB_URI before running this script."
+  return 1
 }
 
 # Wait for backend to be ready
@@ -134,9 +85,9 @@ cleanup() {
 # Set up trap for cleanup
 trap cleanup INT TERM EXIT
 
-# Check MongoDB
-log "Checking MongoDB..."
-check_mongodb || exit 1
+# Check MongoDB connection configuration
+log "Checking MongoDB connection settings..."
+check_mongodb_uri || exit 1
 
 log "Installing Backend dependencies..."
 (cd Backend && npm install > /dev/null 2>&1) &
@@ -169,11 +120,10 @@ echo ""
 echo -e "${GREEN}═══════════════════════════════════════${NC}"
 echo -e "${GREEN}  📱 Frontend: http://localhost:5173${NC}"
 echo -e "${GREEN}  🔧 Backend:  http://localhost:8000${NC}"
-echo -e "${GREEN}  🗄️  MongoDB:  mongodb://localhost:27017${NC}"
+echo -e "${GREEN}  🗄️  MongoDB:  using MONGODB_URI${NC}"
 echo -e "${GREEN}═══════════════════════════════════════${NC}"
 echo ""
 log "Press Ctrl+C to stop all services"
 echo ""
 
 wait "$BACKEND_PID" "$FRONTEND_PID"
-

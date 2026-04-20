@@ -22,16 +22,28 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.14"
+          python-version: "3.11"
 
       - name: Install Python Dependencies
         run: pip install -r requirements.txt
 
-      - name: Run AI Tester
+      - name: Clone Demo Repository
+        run: git clone https://github.com/G0dZilLAaA/CICD_DEMO ci-target/CICD_DEMO
+
+      - name: Run Intelligence Pipeline
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python Intelligence-Module/Orchestrator.py TARGET_CODE/target.py
+        run: |
+          rm -rf Intelligence-Module/root/ci-latest
+          python Intelligence-Module/Orchestrator.py \
+            "$GITHUB_WORKSPACE/ci-target/CICD_DEMO" \
+            --source-root "$GITHUB_WORKSPACE/ci-target/CICD_DEMO" \
+            --output-dir "root/ci-latest"
 
-      - name: Build Successful Message
-        if: success()
-        run: echo "Build Successful"
+      - name: Upload Pipeline Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-results-${{ github.run_id }}
+          path: Intelligence-Module/root/ci-latest
+          if-no-files-found: error
