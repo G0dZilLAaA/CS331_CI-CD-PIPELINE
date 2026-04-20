@@ -630,7 +630,7 @@ function githubRepoEnv() {
   return { owner, name, token };
 }
 
-const DEFAULT_RENDER_URL = process.env.RENDER_URL || "https://cs331-ci-cd-pipeline.onrender.com";
+const DEFAULT_RENDER_URL = process.env.RENDER_URL || "https://cicd-demo-31me.onrender.com/";
 
 async function getGitHubFileInfo(owner, name, path, token) {
   const url = `https://api.github.com/repos/${owner}/${name}/contents/${encodeURIComponent(path)}`;
