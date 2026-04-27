@@ -140,32 +140,6 @@
   background: #f8f9ff;
 }
 
-.result-status {
-  display: inline-block;
-  padding: 4px 8px;
-  border-radius: 3px;
-  font-weight: 500;
-  text-transform: uppercase;
-  font-size: 12px;
-}
-
-.result-status.pass,
-.result-status.success {
-  background: #d4edda;
-  color: #155724;
-}
-
-.result-status.fail,
-.result-status.error {
-  background: #f8d7da;
-  color: #721c24;
-}
-
-.result-status.warning {
-  background: #fff3cd;
-  color: #856404;
-}
-
 .error-message {
   background: #fee;
   color: #c33;
@@ -173,6 +147,44 @@
   border-radius: 5px;
   margin-bottom: 20px;
   border: 1px solid #fcc;
+}
+
+.remove-btn {
+  background: #c0392b;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.2s ease, opacity 0.2s ease;
+}
+
+.remove-btn:hover:not(:disabled) {
+  background: #a93226;
+}
+
+.remove-btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.protected-badge {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #e9ecef;
+  color: #495057;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.empty-state {
+  text-align: center;
+  color: #666;
+  font-style: italic;
 }
 
 .loading {
