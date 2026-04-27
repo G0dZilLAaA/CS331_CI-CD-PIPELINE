@@ -1,0 +1,69 @@
+﻿node : node:internal/mo
+dules/esm/resolve:283
+At line:1 char:1
++ node src/app.js > 
+out.log 2>&1; type 
+out.log
++ ~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~
+    + CategoryInfo     
+         : NotSpecifi  
+  ed: (node:internal   
+ /modules/esm/resol    
+ve:283:String) [],     
+RemoteException
+    + FullyQualifiedEr 
+   rorId : NativeComm  
+  andError
+ 
+    throw new 
+ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_F
+OUND]: Cannot find 
+module 'C:\Codes\SE\CS3
+31_CI-CD-PIPELINE\Backe
+nd\src\triggerPipeline.
+js' imported from C:\Co
+des\SE\CS331_CI-CD-PIPE
+LINE\Backend\src\app.js
+    at 
+finalizeResolution (nod
+e:internal/modules/esm/
+resolve:283:11)
+    at moduleResolve (n
+ode:internal/modules/es
+m/resolve:952:10)
+    at defaultResolve (
+node:internal/modules/e
+sm/resolve:1188:11)
+    at ModuleLoader.def
+aultResolve (node:inter
+nal/modules/esm/loader:
+642:12)
+    at 
+#cachedDefaultResolve (
+node:internal/modules/e
+sm/loader:591:25)
+    at 
+ModuleLoader.resolve (n
+ode:internal/modules/es
+m/loader:574:38)
+    at ModuleLoader.get
+ModuleJobForImport (nod
+e:internal/modules/esm/
+loader:236:38)
+    at ModuleJob._link 
+(node:internal/modules/
+esm/module_job:130:49) 
+{
+  code: 
+'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Code
+s/SE/CS331_CI-CD-PIPELI
+NE/Backend/src/triggerP
+ipeline.js'
+}
+
+Node.js v20.19.0

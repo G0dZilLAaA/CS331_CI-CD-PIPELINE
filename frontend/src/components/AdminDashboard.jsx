@@ -14,14 +14,41 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } }
 };
 
-const ROLE_CLASS = { admin: "pos-admin", manager: "pos-manager", developer: "pos-developer" };
+const ROLE_CLASS   = { admin: "pos-admin", manager: "pos-manager", developer: "pos-developer" };
 const RESULT_BADGE = { pass: "badge-success", fail: "badge-danger", error: "badge-danger", warning: "badge-warning" };
 
+const IconUsers = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+  </svg>
+);
+const IconFlask = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 3h6M10 3v6l-4 9a1 1 0 0 0 .9 1.4h10.2a1 1 0 0 0 .9-1.4l-4-9V3"/>
+  </svg>
+);
+const IconCode = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+  </svg>
+);
+const IconShield = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+  </svg>
+);
+const IconAlert = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <triangle points="10.29 3.86 1.82 18 22.18 18"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+  </svg>
+);
+
 function AdminDashboard({ user, onLogout }) {
-  const [users, setUsers] = useState([]);
-  const [tests, setTests] = useState([]);
+  const [users, setUsers]   = useState([]);
+  const [tests, setTests]   = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError]   = useState("");
 
   useEffect(() => { fetchData(); }, []);
 
@@ -44,10 +71,10 @@ function AdminDashboard({ user, onLogout }) {
   };
 
   const statCards = [
-    { icon: "👥", label: "Total Users", value: users.length, bg: "rgba(124,92,252,0.12)", color: "#7c5cfc" },
-    { icon: "🧪", label: "Total Tests", value: tests.length, bg: "rgba(6,199,225,0.12)", color: "#06c7e1" },
-    { icon: "👨‍💻", label: "Developers", value: users.filter(u => u.position === "developer").length, bg: "rgba(34,211,160,0.12)", color: "#22d3a0" },
-    { icon: "🛡️", label: "Admins", value: users.filter(u => u.position === "admin").length, bg: "rgba(245,158,11,0.12)", color: "#f59e0b" },
+    { Icon: IconUsers,  label: "Total Users",  value: users.length,                                         bg: "rgba(124,92,252,0.12)",  color: "#7c5cfc" },
+    { Icon: IconFlask,  label: "Total Tests",  value: tests.length,                                         bg: "rgba(6,199,225,0.12)",   color: "#06c7e1" },
+    { Icon: IconCode,   label: "Developers",   value: users.filter(u => u.position === "developer").length, bg: "rgba(34,211,160,0.12)",  color: "#22d3a0" },
+    { Icon: IconShield, label: "Admins",       value: users.filter(u => u.position === "admin").length,     bg: "rgba(245,158,11,0.12)",  color: "#f59e0b" },
   ];
 
   if (loading) {
@@ -69,14 +96,14 @@ function AdminDashboard({ user, onLogout }) {
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          <h2>🛡️ <span className="text-gradient">Admin Dashboard</span></h2>
+          <h2><span className="text-gradient">Admin Dashboard</span></h2>
           <p>Manage users, monitor tests, and oversee your CI/CD pipeline.</p>
         </motion.div>
 
         {error && (
           <motion.div className="auth-error" style={{ marginBottom: 24 }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            ⚠️ {error}
+            <IconAlert /> {error}
           </motion.div>
         )}
 
@@ -90,8 +117,8 @@ function AdminDashboard({ user, onLogout }) {
           {statCards.map((s) => (
             <motion.div key={s.label} className="admin-stat-card" variants={itemVariants}>
               <div className="admin-stat-header">
-                <div className="admin-stat-icon" style={{ background: s.bg }}>
-                  {s.icon}
+                <div className="admin-stat-icon" style={{ background: s.bg, color: s.color }}>
+                  <s.Icon />
                 </div>
                 <span className="badge badge-accent">&uarr;</span>
               </div>
@@ -111,7 +138,7 @@ function AdminDashboard({ user, onLogout }) {
             transition={{ delay: 0.3 }}
           >
             <div className="admin-section-header">
-              <div className="admin-section-title">👥 User Management</div>
+              <div className="admin-section-title">User Management</div>
               <span className="badge badge-info">{users.length} users</span>
             </div>
             <table className="data-table">
@@ -152,7 +179,7 @@ function AdminDashboard({ user, onLogout }) {
             transition={{ delay: 0.45 }}
           >
             <div className="admin-section-header">
-              <div className="admin-section-title">🧪 Recent AI Tests</div>
+              <div className="admin-section-title">Recent AI Tests</div>
               <span className="badge badge-accent">{tests.length} runs</span>
             </div>
             <table className="data-table">
