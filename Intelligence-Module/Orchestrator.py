@@ -1,170 +1,163 @@
 """
 Pipeline Orchestrator
-Coordinates Stage0 → Stage1 → Stage2
+Coordinates Stage0 -> Stage1 -> Stage2.
 
-Batch CI/CD mode entry point: run_pipeline_batch(file_list)
+CLI usage:
+    python Orchestrator.py <file-or-directory> [more paths...]
 
-file_entry format:
-    {
-        "file_path": str,           # required — used for identification & language inference
-        "source_code": str          # optional — if absent, read from disk (local dev fallback)
-    }
+The orchestrator accepts one or more files or directories, recursively discovers
+supported source files, runs the batch pipeline, and stores results under
+Intelligence-Module/root/<run-name>/.
 """
 
-from Stage0.Stage0_Compile import infer_language, compile_test
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import tempfile
+from datetime import datetime
+from pathlib import Path
+
+from Stage0.Stage0_Compile import compile_test, infer_language
 from Stage1.Pipeline.Stage1_pipeline import run_stage1
 from Stage2.Pipeline.validation_pipeline import run_stage2
-from cost_modes import get_mode
 from Stage1.config import apply_mode_overrides
-import os
-import json
+from cost_modes import get_mode
+
+
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_RESULTS_ROOT = BASE_DIR / "root"
+SUPPORTED_EXTENSIONS = {".py", ".c", ".cpp", ".java", ".js", ".jsx", ".ts", ".tsx"}
+SKIP_DIRECTORIES = {
+    ".git",
+    ".github",
+    "__pycache__",
+    "node_modules",
+    "dist",
+    "build",
+    "venv",
+    ".venv",
+    "root",
+}
+
+
+def sanitize_name(value: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "-" for ch in value)
+    safe = safe.strip("-._")
+    return safe or "item"
+
+
+def make_json_safe(value):
+    if isinstance(value, dict):
+        return {str(key): make_json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [make_json_safe(item) for item in value]
+    if isinstance(value, set):
+        return [make_json_safe(item) for item in sorted(value, key=lambda item: repr(item))]
+    if isinstance(value, Path):
+        return str(value)
+    return value
+
+
+def write_json_atomic(target_path: Path, payload) -> None:
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    safe_payload = make_json_safe(payload)
+
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=target_path.parent,
+        delete=False,
+    ) as handle:
+        json.dump(safe_payload, handle, indent=2)
+        handle.flush()
+        os.fsync(handle.fileno())
+        temp_path = Path(handle.name)
+
+    temp_path.replace(target_path)
+
+
+def collect_supported_files(targets: list[str]) -> list[Path]:
+    discovered: list[Path] = []
+
+    for target in targets:
+        target_path = Path(target).expanduser().resolve()
+        if not target_path.exists():
+            raise FileNotFoundError(f"Target not found: {target_path}")
+
+        if target_path.is_file():
+            if target_path.suffix.lower() in SUPPORTED_EXTENSIONS:
+                discovered.append(target_path)
+            continue
+
+        for candidate in sorted(target_path.rglob("*")):
+            if candidate.is_dir():
+                if candidate.name in SKIP_DIRECTORIES:
+                    continue
+                continue
+
+            if any(part in SKIP_DIRECTORIES for part in candidate.parts):
+                continue
+
+            if candidate.suffix.lower() in SUPPORTED_EXTENSIONS:
+                discovered.append(candidate.resolve())
+
+    unique_files: list[Path] = []
+    seen: set[str] = set()
+    for file_path in discovered:
+        key = str(file_path)
+        if key not in seen:
+            unique_files.append(file_path)
+            seen.add(key)
+
+    return unique_files
+
+
+def ensure_output_dir(output_dir: str | None) -> Path:
+    if output_dir:
+        candidate = Path(output_dir)
+        resolved = candidate if candidate.is_absolute() else BASE_DIR / candidate
+    else:
+        timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        resolved = DEFAULT_RESULTS_ROOT / f"run-{timestamp}"
+
+    resolved.mkdir(parents=True, exist_ok=True)
+    return resolved.resolve()
+
+
+def make_file_label(file_path: str, source_root: Path | None) -> str:
+    file_obj = Path(file_path).resolve()
+    if source_root:
+        try:
+            return str(file_obj.relative_to(source_root.resolve()))
+        except ValueError:
+            pass
+    return str(file_obj)
 
 
 class Pipeline_Orchestrator:
-    def __init__(self, user_context: str = None, mode: str = None, output_path: str = None):
+    def __init__(self, user_context: str | None = None, mode: str | None = None):
         self.user_context = user_context
         self.mode_config = get_mode(mode)
-        self.output_path = output_path  # None = don't save; str = directory to save artifacts
-
-    # ──────────────────────────────────────────────
-    # Source resolver
-    # ──────────────────────────────────────────────
 
     @staticmethod
     def resolve_source(file_entry: dict) -> str:
         if "source_code" in file_entry:
             return file_entry["source_code"]
-        with open(file_entry["file_path"], "r", encoding="utf-8") as f:
-            return f.read()
+        with open(file_entry["file_path"], "r", encoding="utf-8") as file:
+            return file.read()
 
-    # ──────────────────────────────────────────────
-    # Artifact saver
-    # ──────────────────────────────────────────────
-
-    def save_artifacts(self, file_path: str, file_result: dict):
-        """
-        Saves per-stage JSON artifacts under self.output_path.
-
-        Naming convention (derived from source file stem + language):
-            <stem>_<lang>_bugs.json
-            <stem>_<lang>_test_cases.json
-            <stem>_<lang>_summary.json
-            <stem>_<lang>_analysis.json
-        """
-        if not self.output_path:
-            return
-
-        os.makedirs(self.output_path, exist_ok=True)
-        stem = os.path.splitext(os.path.basename(file_path))[0]
-        lang = file_result.get("language", "unknown")
-        prefix = f"{stem}_{lang}"
-
-        artifacts = {}
-
-        # Bugs (Stage 2 post-filtering)
-        if file_result.get("stage2"):
-            artifacts[f"{prefix}_bugs.json"] = file_result["stage2"].get("bugs", {})
-
-        # Test cases (Stage 2 post-filtering)
-        if file_result.get("stage2"):
-            artifacts[f"{prefix}_test_cases.json"] = file_result["stage2"].get("tests", {})
-
-        # Summary — condensed single-file overview
-        if file_result.get("stage0"):
-            s0 = file_result["stage0"]
-            s1 = file_result.get("stage1")
-            s2 = file_result.get("stage2")
-
-            summary = {
-                "stage0": {
-                    "status": s0.get("status"),
-                    "language": s0.get("language"),
-                    "error_count": s0.get("total_errors"),
-                    "errors": s0.get("errors", []),
-                },
-            }
-
-            if s1:
-                sf = s1.get("structural_features", {})
-                cov = s1.get("coverage", {})
-                summary["stage1"] = {
-                    "execution_model": s1.get("execution_model"),
-                    "structural_features": {
-                        "function_count": sf.get("function_count"),
-                        "class_count": sf.get("class_count"),
-                        "loop_count": sf.get("loop_count"),
-                        "max_nesting_depth": sf.get("max_nesting_depth"),
-                        "cyclomatic_complexity": sf.get("cyclomatic_complexity"),
-                        "recursiondetected": sf.get("recursiondetected"),
-                        "branching_factor": sf.get("branching_factor"),
-                    },
-                    "coverage": {
-                        "line": cov.get("line"),
-                        "branch": cov.get("branch"),
-                    },
-                }
-
-            if s2:
-                s2_bugs = s2.get("bugs", {})
-                s2_summ = s2_bugs.get("summary", {})
-                s2_tests = s2.get("tests", {})
-                s2_mutation = s2.get("mutation_testing", {})
-                summary["stage2"] = {
-                    "confirmed_bugs": s2_summ.get("confirmed_count", 0),
-                    "inconclusive": s2_summ.get("inconclusive_count", 0),
-                    "hallucinations_removed": s2_summ.get("hallucinated_count", 0),
-                    "valid_test_cases": s2_tests.get("total_valid", 0),
-                    "mutation_score": s2_mutation.get("mutation_score") if s2_mutation else None,
-                }
-
-            artifacts[f"{prefix}_summary.json"] = summary
-
-        # Analysis — combined Stage 0 + Stage 1 detailed data
-        analysis = {}
-        if file_result.get("stage0"):
-            analysis["compilation"] = file_result["stage0"]
-        if file_result.get("stage1"):
-            s1 = file_result["stage1"]
-            analysis["semantic_analysis"] = {
-                "language": s1.get("language"),
-                "execution_model": s1.get("execution_model"),
-                "structural_features": s1.get("structural_features", {}),
-                "coverage": s1.get("coverage", {}),
-            }
-        if analysis:
-            artifacts[f"{prefix}_analysis.json"] = analysis
-
-        for filename, payload in artifacts.items():
-            out_path = os.path.join(self.output_path, filename)
-            with open(out_path, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=2, default=str)
-            print(f"    [Orchestrator] Saved → {out_path}")
-
-    # ──────────────────────────────────────────────
-    # Batch CI/CD mode
-    # ──────────────────────────────────────────────
-
-    def run_pipeline_batch(self, file_list: list):
-        """
-        Run the pipeline for a batch of files from a git event trigger.
-
-        Args:
-            file_list: list of file_entry dicts
-                - "file_path": str   (required)
-                - "source_code": str (optional — inlined by CI webhook; falls back to disk)
-
-        Returns:
-            {
-                "pipeline_status": "BATCH_COMPLETE",
-                "total_files": int,
-                "passed": int,
-                "failed_stage0": int,
-                "completed": int,
-                "skipped": int,
-                "results": [per-file result dicts]
-            }
-        """
+    def run_pipeline_batch(
+        self,
+        file_list: list[dict],
+        output_dir: str | Path | None = None,
+        source_root: str | Path | None = None,
+    ) -> dict:
         apply_mode_overrides(self.mode_config)
+
+        output_path = ensure_output_dir(str(output_dir) if output_dir else None)
+        root_path = Path(source_root).resolve() if source_root else None
 
         results = []
         passed = 0
@@ -173,40 +166,49 @@ class Pipeline_Orchestrator:
         skipped = 0
 
         for file_entry in file_list:
-            file_path = file_entry["file_path"]
+            raw_file_path = file_entry["file_path"]
+            display_path = make_file_label(raw_file_path, root_path)
 
             print(f"\n{'=' * 60}")
-            print(f"PIPELINE — {file_path}")
+            print(f"PIPELINE - {display_path}")
             print(f"{'=' * 60}")
 
-            # Resolve source
             try:
                 source_code = self.resolve_source(file_entry)
-            except Exception as e:
-                results.append({
-                    "file_path": file_path,
-                    "pipeline_status": "SKIPPED",
-                    "error": f"Could not read source: {e}",
-                    "stage0": None, "stage1": None, "stage2": None
-                })
+            except Exception as exc:
+                results.append(
+                    {
+                        "file_path": display_path,
+                        "source_path": raw_file_path,
+                        "pipeline_status": "SKIPPED",
+                        "error": f"Could not read source: {exc}",
+                        "stage0": None,
+                        "stage1": None,
+                        "stage2": None,
+                    }
+                )
                 skipped += 1
                 continue
 
-            # Infer language from extension
             try:
-                _, ext = os.path.splitext(file_path)
-                language = infer_language(ext)
+                _, ext = os.path.splitext(raw_file_path)
+                language = infer_language(ext.lower())
             except ValueError:
-                results.append({
-                    "file_path": file_path,
-                    "pipeline_status": "SKIPPED",
-                    "error": f"Unsupported file extension: {file_path}",
-                    "stage0": None, "stage1": None, "stage2": None
-                })
+                results.append(
+                    {
+                        "file_path": display_path,
+                        "source_path": raw_file_path,
+                        "pipeline_status": "SKIPPED",
+                        "error": f"Unsupported file extension: {raw_file_path}",
+                        "stage0": None,
+                        "stage1": None,
+                        "stage2": None,
+                    }
+                )
                 skipped += 1
                 continue
 
-            file_result = self.run_single_file(file_path, source_code, language)
+            file_result = self.run_single_file(display_path, raw_file_path, source_code, language)
             results.append(file_result)
 
             status = file_result["pipeline_status"]
@@ -215,167 +217,142 @@ class Pipeline_Orchestrator:
             elif status == "STAGE_2_COMPLETE":
                 completed += 1
                 passed += 1
-                self.save_artifacts(file_path, file_result)
             elif status == "SKIPPED":
                 skipped += 1
 
-        return {
+        summary = {
             "pipeline_status": "BATCH_COMPLETE",
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "output_dir": str(output_path),
+            "source_root": str(root_path) if root_path else None,
             "total_files": len(file_list),
             "passed": passed,
             "failed_stage0": failed_stage0,
             "completed": completed,
             "skipped": skipped,
-            "results": results
+            "results": results,
         }
 
-    def run_single_file(self, file_path, source_code, language, diff=None):
-        """
-        Run full pipeline for a single file.
-        Orchestrator owns all console output (SoC).
-        """
-        # ── Stage 0 ──
-        stage0_result = compile_test(source_code, language)
+        self.write_results(summary, output_path)
+        return summary
 
-        print(f"\n{'─' * 60}")
-        print(f"STAGE 0 — Compilation Check")
-        print(f"{'─' * 60}")
-        print(f"    Status   : {stage0_result['status']}")
-        print(f"    Language : {stage0_result['language']}")
-        print(f"    Errors   : {stage0_result['total_errors']}")
-        if stage0_result["status"] == "FAIL":
-            for i, err in enumerate(stage0_result.get("errors", [])):
-                print(f"      [{i + 1}] {err.get('error_type', 'Unknown')}: {err.get('error', '')}")
+    def run_single_file(
+        self, display_path: str, raw_file_path: str, source_code: str, language: str
+    ) -> dict:
+        stage0_result = compile_test(source_code, language)
 
         if stage0_result["status"] != "PASS":
             return {
-                "file_path": file_path,
+                "file_path": display_path,
+                "source_path": raw_file_path,
                 "language": language,
                 "pipeline_status": "STOPPED_AT_STAGE_0",
                 "stage0": stage0_result,
                 "stage1": None,
-                "stage2": None
+                "stage2": None,
             }
 
-        # ── Stage 1 ──
         try:
             stage1_result = run_stage1(
-                stage0_result, source_code,
-                user_context=self.user_context
+                stage0_result,
+                source_code,
+                user_context=self.user_context,
             )
-        except Exception as e:
+        except Exception as exc:
             return {
-                "file_path": file_path,
+                "file_path": display_path,
+                "source_path": raw_file_path,
                 "language": language,
                 "pipeline_status": "FAILED_AT_STAGE_1",
                 "stage0": stage0_result,
                 "stage1": None,
                 "stage2": None,
-                "error": str(e)
+                "error": str(exc),
             }
 
-        # Print Stage 1 output
-        print(f"\n{'─' * 60}")
-        print(f"STAGE 1 — Semantic Analysis & Test Generation")
-        print(f"{'─' * 60}")
-
-        print(f"\n  [Semantic Analysis]")
-        print(f"    Language        : {stage1_result.get('language')}")
-        print(f"    Execution model : {stage1_result.get('execution_model')}")
-
-        sf = stage1_result.get("structural_features") or {}
-        if sf:
-            print(f"    Functions       : {sf.get('function_count', 'N/A')}")
-            print(f"    Classes         : {sf.get('class_count', 'N/A')}")
-            print(f"    Loops           : {sf.get('loop_count', 'N/A')}")
-            print(f"    Max nesting     : {sf.get('max_nesting_depth', 'N/A')}")
-            print(f"    Cyclomatic comp.: {sf.get('cyclomatic_complexity', 'N/A')}")
-            print(f"    Recursion       : {'Yes' if sf.get('recursiondetected') else 'No'}")
-            print(f"    Branching factor: {sf.get('branching_factor', 'N/A')}")
-
-        cov = stage1_result.get("coverage", {})
-        bugs = stage1_result.get("bugs", {})
-        print(f"\n  [Test Generation]")
-        print(f"    Tests generated  : {len(stage1_result.get('generated_test_cases', []))}")
-        print(f"    Tests executed   : {len(stage1_result.get('executed_tests', []))}")
-        print(f"    Line coverage    : {cov.get('line', 0):.2%}")
-        print(f"    Branch coverage  : {cov.get('branch', 0):.2%}")
-        print(f"    Exceptions       : {len(bugs.get('exceptions', []))}")
-        print(f"    Failures         : {len(bugs.get('failures', []))}")
-        print(f"    Incorrect outputs: {len(bugs.get('incorrect_outputs', []))}")
-
-        # ── Stage 2 ──
         try:
             stage2_result = run_stage2(
                 stage1_result,
-                max_mutants=self.mode_config.get("max_mutants")
+                max_mutants=self.mode_config.get("max_mutants"),
             )
-        except Exception as e:
+        except Exception as exc:
             return {
-                "file_path": file_path,
+                "file_path": display_path,
+                "source_path": raw_file_path,
                 "language": language,
                 "pipeline_status": "FAILED_AT_STAGE_2",
                 "stage0": stage0_result,
                 "stage1": stage1_result,
                 "stage2": None,
-                "error": str(e)
+                "error": str(exc),
             }
 
-        # Print Stage 2 output
-        print(f"\n{'─' * 60}")
-        print(f"STAGE 2 — Validation Pipeline")
-        print(f"{'─' * 60}")
-
-        s2_bugs = stage2_result.get("bugs", {})
-        s2_summary = s2_bugs.get("summary", {})
-        s2_tests = stage2_result.get("tests", {})
-        s2_mutation = stage2_result.get("mutation_testing", {})
-
-        print(f"\n  [Signal Filter]")
-        print(f"    Incoming bugs    : {s2_summary.get('total_incoming', 0)}")
-        print(f"    After filtering  : {s2_summary.get('total_after_filtering', 0)}")
-        print(f"    Hallucinations   : {s2_summary.get('hallucinated_count', 0)}")
-
-        print(f"\n  [Mutation Testing]")
-        if s2_mutation:
-            print(f"    Total mutants    : {s2_mutation.get('total_mutants', 0)}")
-            print(f"    Killed           : {s2_mutation.get('killed', 0)}")
-            print(f"    Survived         : {s2_mutation.get('survived', 0)}")
-            print(f"    Mutation score   : {s2_mutation.get('mutation_score', 0):.2%}")
-        else:
-            print(f"    No mutants generated")
-
-        print(f"\n  [Final Report]")
-        print(f"    Confirmed bugs   : {s2_summary.get('confirmed_count', 0)}")
-        print(f"    Inconclusive     : {s2_summary.get('inconclusive_count', 0)}")
-        print(f"    Valid test cases  : {s2_tests.get('total_valid', 0)}")
-        print(f"    Coverage-only     : {len(s2_tests.get('coverage_only_tests', []))}")
-
         return {
-            "file_path": file_path,
+            "file_path": display_path,
+            "source_path": raw_file_path,
             "language": language,
             "pipeline_status": "STAGE_2_COMPLETE",
             "stage0": stage0_result,
             "stage1": stage1_result,
-            "stage2": stage2_result
+            "stage2": stage2_result,
         }
 
+    @staticmethod
+    def write_results(summary: dict, output_path: Path) -> None:
+        files_dir = output_path / "files"
+        files_dir.mkdir(parents=True, exist_ok=True)
 
-if __name__ == "__main__":
+        write_json_atomic(output_path / "pipeline_results_summary.json", summary)
 
-    pipeline = Pipeline_Orchestrator(
-        mode=None,
-        output_path=r"C:\Users\hp\Desktop\IIIT Guwahati\CS\CS331(SE LAB)\pipeline_output"
+        for index, file_result in enumerate(summary["results"], start=1):
+            label = sanitize_name(file_result.get("file_path", f"file-{index}"))
+            detail_path = files_dir / f"{index:03d}-{label}.json"
+            write_json_atomic(detail_path, file_result)
+
+
+def build_cli_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Run the intelligence pipeline against one or more files/directories."
     )
+    parser.add_argument("targets", nargs="+", help="Source file(s) or directory/directories to test")
+    parser.add_argument("--mode", default=None, help="Pipeline cost mode")
+    parser.add_argument("--user-context", default=None, help="Optional user context for Stage 1")
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Output directory for generated results. Relative paths are created inside Intelligence-Module.",
+    )
+    parser.add_argument(
+        "--source-root",
+        default=None,
+        help="Optional base directory used to make file paths in reports relative.",
+    )
+    return parser
 
-    batch_input = [
-        {"file_path": r"C:\Users\hp\Desktop\Leet Code\Optimised and Learnings\23 - Merge k sorted Lists.py"}
-        ,{"file_path": r"C:\Users\hp\Desktop\IIIT Guwahati\CS\CS331(SE LAB)\Test.cpp"},
-        {"file_path": r"C:\Users\hp\Desktop\IIIT Guwahati\CS\CS331(SE LAB)\Test.c"},
-        {"file_path": r"C:\Users\hp\Desktop\IIIT Guwahati\CS\CS331(SE LAB)\Test.js"}
-    ]
 
-    result = pipeline.run_pipeline_batch(batch_input)
+def main() -> int:
+    parser = build_cli_parser()
+    args = parser.parse_args()
+
+    file_paths = collect_supported_files(args.targets)
+    if not file_paths:
+        print("No supported source files were found in the provided targets.")
+        return 1
+
+    if args.source_root:
+        source_root = Path(args.source_root).expanduser().resolve()
+    elif len(args.targets) == 1 and Path(args.targets[0]).expanduser().resolve().is_dir():
+        source_root = Path(args.targets[0]).expanduser().resolve()
+    else:
+        source_root = None
+
+    pipeline = Pipeline_Orchestrator(user_context=args.user_context, mode=args.mode)
+    batch_input = [{"file_path": str(path)} for path in file_paths]
+    result = pipeline.run_pipeline_batch(
+        batch_input,
+        output_dir=args.output_dir,
+        source_root=source_root,
+    )
 
     print("\n" + "=" * 60)
     print("BATCH PIPELINE RESULT")
@@ -385,6 +362,7 @@ if __name__ == "__main__":
     print(f"Completed    : {result['completed']}")
     print(f"Failed Stg0  : {result['failed_stage0']}")
     print(f"Skipped      : {result['skipped']}")
+    print(f"Results Dir  : {result['output_dir']}")
 
     for file_result in result["results"]:
         print(f"\n{'-' * 40}")
@@ -396,12 +374,23 @@ if __name__ == "__main__":
             print(f"Error   : {file_result['error']}")
 
         if file_result.get("stage1"):
-            s1 = file_result["stage1"]
-            print(f"Coverage — Line: {s1['coverage']['line']:.2%}, Branch: {s1['coverage']['branch']:.2%}")
-            print(f"Bugs — Exceptions: {len(s1['bugs']['exceptions'])}, "
-                  f"Failures: {len(s1['bugs']['failures'])}, "
-                  f"Incorrect: {len(s1['bugs']['incorrect_outputs'])}")
+            stage1 = file_result["stage1"]
+            print(
+                f"Coverage - Line: {stage1['coverage']['line']:.2%}, "
+                f"Branch: {stage1['coverage']['branch']:.2%}"
+            )
+            print(
+                f"Bugs - Exceptions: {len(stage1['bugs']['exceptions'])}, "
+                f"Failures: {len(stage1['bugs']['failures'])}, "
+                f"Incorrect: {len(stage1['bugs']['incorrect_outputs'])}"
+            )
 
         if file_result.get("stage2") and file_result["stage2"].get("mutation_testing"):
-            mt = file_result["stage2"]["mutation_testing"]
-            print(f"Mutation Score: {mt.get('mutation_score', 0):.2%}")
+            mutation_testing = file_result["stage2"]["mutation_testing"]
+            print(f"Mutation Score: {mutation_testing.get('mutation_score', 0):.2%}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

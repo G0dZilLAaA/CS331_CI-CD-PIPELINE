@@ -9,6 +9,13 @@ export default function CICDDashboard() {
   const [purpose, setPurpose] = useState("testing");
   const [file, setFile] = useState(null);
   const [uploads, setUploads] = useState([]);
+  const [pipelineResults, setPipelineResults] = useState(null);
+  const [resultsMessage, setResultsMessage] = useState("Loading latest stored results...");
+
+  const authHeaders = () => {
+    const token = localStorage.getItem("token");
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
 
   const fetchStatus = async () => {
     try {
@@ -32,6 +39,26 @@ export default function CICDDashboard() {
     }
   };
 
+  const loadPipelineResults = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/pipeline-results`, {
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPipelineResults(null);
+        setResultsMessage(data.error || "Failed to load stored pipeline results");
+        return;
+      }
+
+      setPipelineResults(data);
+      setResultsMessage(data.message || "No stored pipeline results yet");
+    } catch {
+      setPipelineResults(null);
+      setResultsMessage("Unable to load stored pipeline results");
+    }
+  };
+
   const loadUploads = async () => {
     try {
       const res = await fetch(`${API_BASE}/uploads`);
@@ -46,7 +73,10 @@ export default function CICDDashboard() {
   const startPipeline = async () => {
     setMessage("");
     try {
-      const res = await fetch(`${API_BASE}/run-pipeline`, { method: "POST" });
+      const res = await fetch(`${API_BASE}/run-pipeline`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setMessage(data.error || "Start failed");
@@ -54,6 +84,7 @@ export default function CICDDashboard() {
       }
       setMessage(data.message || "Triggered");
       fetchStatus();
+      loadPipelineResults();
     } catch (e) {
       setMessage(e.message || "Start failed");
     }
@@ -62,7 +93,10 @@ export default function CICDDashboard() {
   const stopPipeline = async () => {
     setMessage("");
     try {
-      const res = await fetch(`${API_BASE}/stop-pipeline`, { method: "POST" });
+      const res = await fetch(`${API_BASE}/stop-pipeline`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setMessage(data.error || data.message || "Stop failed");
@@ -86,7 +120,11 @@ export default function CICDDashboard() {
     fd.append("file", file);
     fd.append("purpose", purpose);
     try {
-      const res = await fetch(`${API_BASE}/uploads`, { method: "POST", body: fd });
+      const res = await fetch(`${API_BASE}/uploads`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: fd,
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setMessage(data.error || "Upload failed");
@@ -104,9 +142,16 @@ export default function CICDDashboard() {
   useEffect(() => {
     fetchStatus();
     loadUploads();
+    loadPipelineResults();
     const interval = setInterval(fetchStatus, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (status === "Success" || status === "Failed" || status === "Cancelled") {
+      loadPipelineResults();
+    }
+  }, [status]);
 
   return (
     <div
@@ -175,6 +220,57 @@ export default function CICDDashboard() {
           ))
         )}
       </ul>
+
+      <hr style={{ margin: "24px 0" }} />
+
+      <h3>Latest stored CI results</h3>
+      <p style={{ color: "#57606a" }}>{resultsMessage}</p>
+
+      {pipelineResults?.summary ? (
+        <div style={{ border: "1px solid #d0d7de", borderRadius: "12px", padding: "16px" }}>
+          <div style={{ marginBottom: "16px" }}>
+            <strong>Status:</strong> {pipelineResults.summary.pipeline_status}
+            <span style={{ marginLeft: "16px" }}>
+              <strong>Total:</strong> {pipelineResults.summary.total_files}
+            </span>
+            <span style={{ marginLeft: "16px" }}>
+              <strong>Completed:</strong> {pipelineResults.summary.completed}
+            </span>
+            <span style={{ marginLeft: "16px" }}>
+              <strong>Skipped:</strong> {pipelineResults.summary.skipped}
+            </span>
+          </div>
+
+          {pipelineResults.run ? (
+            <p style={{ marginTop: 0 }}>
+              Workflow run #{pipelineResults.run.run_number} on branch {pipelineResults.run.head_branch}
+            </p>
+          ) : null}
+
+          <div style={{ display: "grid", gap: "12px" }}>
+            {(pipelineResults.summary.results || []).map((item) => (
+              <div
+                key={`${item.file_path}-${item.pipeline_status}`}
+                style={{
+                  border: "1px solid #e5e7eb",
+                  borderRadius: "10px",
+                  padding: "12px",
+                  background: "#f8fafc",
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>{item.file_path}</div>
+                <div style={{ marginTop: "4px", color: "#334155" }}>
+                  {item.language ? `${item.language} · ` : ""}
+                  {item.pipeline_status}
+                </div>
+                {item.error ? (
+                  <div style={{ marginTop: "8px", color: "#b91c1c" }}>{item.error}</div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

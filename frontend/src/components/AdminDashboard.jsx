@@ -4,10 +4,10 @@ import "./AdminDashboard.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
-function AdminDashboard({ user, onLogout }) {
+function AdminDashboard({ onLogout }) {
   const [users, setUsers] = useState([]);
-  const [tests, setTests] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [removingUserId, setRemovingUserId] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -16,36 +16,76 @@ function AdminDashboard({ user, onLogout }) {
 
   const fetchData = async () => {
     setLoading(true);
+    setError("");
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem("token");
+      const usersRes = await fetch(`${API_BASE}/admin/users`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
 
-      const [usersRes, testsRes] = await Promise.all([
-        fetch(`${API_BASE}/admin/users`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }),
-        fetch(`${API_BASE}/admin/tests`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
-      ]);
-
-      if (usersRes.ok && testsRes.ok) {
-        const usersData = await usersRes.json();
-        const testsData = await testsRes.json();
-        setUsers(usersData.users || []);
-        setTests(testsData.tests || []);
-      } else {
-        setError("Failed to fetch admin data");
+      if (!usersRes.ok) {
+        const data = await usersRes.json().catch(() => ({}));
+        setUsers([]);
+        setError(data.error || "Failed to fetch employees");
+        return;
       }
-    } catch (err) {
+
+      const usersData = await usersRes.json();
+      setUsers(usersData.users || []);
+    } catch {
       setError("Network error");
+      setUsers([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRemoveEmployee = async (employee) => {
+    if (employee.position === "admin") {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Remove ${employee.name} (${employee.employeeId}) from the database?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setRemovingUserId(employee._id);
+    setError("");
+
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(`${API_BASE}/admin/users/${employee._id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setError(data.error || "Failed to remove employee");
+        return;
+      }
+
+      setUsers((currentUsers) =>
+        currentUsers.filter((currentUser) => currentUser._id !== employee._id)
+      );
+    } catch {
+      setError("Network error");
+    } finally {
+      setRemovingUserId("");
     }
   };
 
   const handleLogout = () => {
     onLogout();
   };
+
+  const employeeUsers = users.filter((listedUser) => listedUser.position !== "admin");
+  const adminUsers = users.filter((listedUser) => listedUser.position === "admin");
 
   if (loading) {
     return <div className="loading">Loading admin dashboard...</div>;
@@ -73,26 +113,18 @@ function AdminDashboard({ user, onLogout }) {
             <div className="stat-number">{users.length}</div>
           </div>
           <div className="stat-card">
-            <h3>Total Tests</h3>
-            <div className="stat-number">{tests.length}</div>
-          </div>
-          <div className="stat-card">
-            <h3>Active Users</h3>
-            <div className="stat-number">
-              {users.filter(u => u.position !== 'admin').length}
-            </div>
+            <h3>Total Employees</h3>
+            <div className="stat-number">{employeeUsers.length}</div>
           </div>
           <div className="stat-card">
             <h3>Admin Users</h3>
-            <div className="stat-number">
-              {users.filter(u => u.position === 'admin').length}
-            </div>
+            <div className="stat-number">{adminUsers.length}</div>
           </div>
         </div>
 
         <div className="data-section">
           <div className="section">
-            <h2>User Management</h2>
+            <h2>Employee Management</h2>
             <div className="table-container">
               <table className="data-table">
                 <thead>
@@ -102,46 +134,36 @@ function AdminDashboard({ user, onLogout }) {
                     <th>Position</th>
                     <th>Employee ID</th>
                     <th>Created</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map(user => (
-                    <tr key={user._id}>
-                      <td>{user.username}</td>
-                      <td>{user.name}</td>
-                      <td>{user.position}</td>
-                      <td>{user.employeeId}</td>
-                      <td>{new Date(user.createdAt).toLocaleDateString()}</td>
+                  {users.length === 0 && (
+                    <tr>
+                      <td colSpan="6" className="empty-state">No employees found.</td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="section">
-            <h2>Recent AI Tests</h2>
-            <div className="table-container">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Employee ID</th>
-                    <th>Test Type</th>
-                    <th>Result</th>
-                    <th>Timestamp</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tests.slice(0, 10).map(test => (
-                    <tr key={test._id}>
-                      <td>{test.employeeId}</td>
-                      <td>{test.testType}</td>
+                  )}
+                  {users.map((listedUser) => (
+                    <tr key={listedUser._id}>
+                      <td>{listedUser.username}</td>
+                      <td>{listedUser.name}</td>
+                      <td>{listedUser.position}</td>
+                      <td>{listedUser.employeeId}</td>
+                      <td>{new Date(listedUser.createdAt).toLocaleDateString()}</td>
                       <td>
-                        <span className={`result-status ${test.result?.toLowerCase()}`}>
-                          {test.result}
-                        </span>
+                        {listedUser.position === "admin" ? (
+                          <span className="protected-badge">Protected</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="remove-btn"
+                            onClick={() => handleRemoveEmployee(listedUser)}
+                            disabled={removingUserId === listedUser._id}
+                          >
+                            {removingUserId === listedUser._id ? "Removing..." : "Remove"}
+                          </button>
+                        )}
                       </td>
-                      <td>{new Date(test.createdAt).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>

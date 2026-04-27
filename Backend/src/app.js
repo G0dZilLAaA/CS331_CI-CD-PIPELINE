@@ -4,6 +4,11 @@ import axios from "axios";
 import multer from "multer";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { spawn, execFile } from "child_process";
+import { promisify } from "util";
 import { triggerPipeline } from "./triggerPipeline.js";
 import { connectWithRetry } from "./db.js";
 import { UploadedFile } from "./models/UploadedFile.js";
@@ -15,6 +20,9 @@ app.use(cors());
 app.use(express.json());
 
 const SUPPORTED_EXTENSIONS = [".java", ".cpp", ".c", ".py"];
+const execFileAsync = promisify(execFile);
+const intelligenceModuleDir = path.resolve(process.cwd(), "..", "Intelligence-Module");
+const intelligenceResultsRoot = path.join(intelligenceModuleDir, "root");
 
 let webhooksCollection = [];
 
@@ -101,7 +109,7 @@ app.post("/auth/signup", async (req, res) => {
     }
 
     const existingUser = await User.findOne({ username });
-
+    console.log(existingUser);
     if (existingUser) {
       return res.status(409).json({ error: "Username already exists" });
     }
@@ -257,13 +265,8 @@ app.post("/uploads", authenticateToken, upload.single("file"), async (req, res) 
 
     const text = req.file.buffer.toString("utf8");
 
-    // Import fs and path
-    const fs = await import('fs');
-    const path = await import('path');
-
     // Save to Intelligence-Module/uploads directory
-    const intelligenceModuleDir = path.join(process.cwd(), '..', 'Intelligence-Module');
-    const uploadsDir = path.join(intelligenceModuleDir, 'uploads');
+    const uploadsDir = path.join(intelligenceModuleDir, "uploads");
     
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
@@ -285,18 +288,19 @@ app.post("/uploads", authenticateToken, upload.single("file"), async (req, res) 
 
     console.log(`File saved to: ${uploadPath}`);
 
-    // Run Orchestrator.py from Intelligence-Module
-    const { spawn } = await import('child_process');
-    
     let responseSent = false;
+    const outputDir = createPipelineOutputDir("uploads", req.file.originalname);
     
-    const pythonProcess = spawn('python', ['Orchestrator.py'], {
+    const pythonProcess = spawn("python", [
+      "Orchestrator.py",
+      uploadPath,
+      "--output-dir",
+      outputDir,
+      "--source-root",
+      uploadsDir,
+    ], {
       cwd: intelligenceModuleDir,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        TARGET_FILE: uploadPath
-      }
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
     let output = '';
@@ -321,7 +325,7 @@ app.post("/uploads", authenticateToken, upload.single("file"), async (req, res) 
       console.log(`Orchestrator process exited with code ${code}`);
       
       try {
-        let jsonResults = {};
+        let jsonResults = readPipelineSummary(outputDir);
         let successStatus = 'PASS';
 
         // Determine status from exit code
@@ -356,6 +360,7 @@ app.post("/uploads", authenticateToken, upload.single("file"), async (req, res) 
           aiResult: successStatus,
           aiOutput: output || errorOutput,
           jsonResults: jsonResults,
+          resultsDirectory: outputDir,
           message: "File uploaded and AI testing completed"
         });
       } catch (error) {
@@ -433,6 +438,190 @@ function githubHeaders(token) {
   };
 }
 
+function sanitizePathPart(value) {
+  return String(value)
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "item";
+}
+
+function createPipelineOutputDir(scope, label) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const outputDir = path.join(
+    intelligenceResultsRoot,
+    scope,
+    `${sanitizePathPart(label)}-${timestamp}`
+  );
+  fs.mkdirSync(outputDir, { recursive: true });
+  return outputDir;
+}
+
+function readPipelineSummary(outputDir) {
+  const summaryPath = path.join(outputDir, "pipeline_results_summary.json");
+  if (!fs.existsSync(summaryPath)) {
+    return {};
+  }
+  try {
+    return JSON.parse(fs.readFileSync(summaryPath, "utf-8"));
+  } catch (error) {
+    console.error(`Failed to parse pipeline summary at ${summaryPath}:`, error.message);
+    return {};
+  }
+}
+
+function cleanWorkflowLogText(value) {
+  return String(value)
+    .replace(/\u001b\[[0-9;]*m/g, "")
+    .replace(/\r/g, "")
+    .trim();
+}
+
+function trimWorkflowLogText(value, maxLines = 250, maxChars = 20000) {
+  const cleaned = cleanWorkflowLogText(value);
+  const lines = cleaned.split("\n");
+  const tailLines = lines.slice(-maxLines).join("\n");
+  if (tailLines.length <= maxChars) {
+    return tailLines;
+  }
+  return tailLines.slice(-maxChars);
+}
+
+async function fetchJobLogSnippet(owner, name, jobId, token) {
+  try {
+    const response = await axios.get(
+      `https://api.github.com/repos/${owner}/${name}/actions/jobs/${jobId}/logs`,
+      {
+        headers: githubHeaders(token),
+        responseType: "text",
+        maxRedirects: 5,
+      }
+    );
+
+    const fullText =
+      typeof response.data === "string"
+        ? response.data
+        : Buffer.isBuffer(response.data)
+          ? response.data.toString("utf-8")
+          : String(response.data ?? "");
+
+    const trimmed = trimWorkflowLogText(fullText);
+    return {
+      available: Boolean(trimmed),
+      text: trimmed,
+      truncated: cleanWorkflowLogText(fullText).length > trimmed.length,
+    };
+  } catch (error) {
+    const status = error.response?.status;
+    return {
+      available: false,
+      text:
+        status === 404
+          ? "Logs are not available for this job yet."
+          : "Unable to load logs for this job right now.",
+      truncated: false,
+    };
+  }
+}
+
+async function fetchLatestPipelineResultsFromArtifact() {
+  const env = githubRepoEnv();
+  if (!env) {
+    return {
+      configured: false,
+      message: "GitHub not configured",
+    };
+  }
+
+  const { owner, name, token } = env;
+  const runsRes = await axios.get(`https://api.github.com/repos/${owner}/${name}/actions/runs`, {
+    headers: githubHeaders(token),
+    params: { per_page: 10 },
+  });
+
+  const completedRun = (runsRes.data.workflow_runs || []).find((run) => run.status === "completed");
+  if (!completedRun) {
+    return {
+      configured: true,
+      message: "No completed workflow runs yet",
+      run: null,
+      summary: null,
+    };
+  }
+
+  const artifactsRes = await axios.get(
+    `https://api.github.com/repos/${owner}/${name}/actions/runs/${completedRun.id}/artifacts`,
+    {
+      headers: githubHeaders(token),
+      params: { per_page: 100 },
+    }
+  );
+
+  const artifact = (artifactsRes.data.artifacts || []).find(
+    (item) => !item.expired && item.name.startsWith("pipeline-results")
+  );
+
+  if (!artifact) {
+    return {
+      configured: true,
+      message: "No pipeline results artifact found for the latest completed run",
+      run: completedRun,
+      summary: null,
+    };
+  }
+
+  const zipPath = path.join(os.tmpdir(), `pipeline-results-${artifact.id}.zip`);
+  const downloadRes = await axios.get(artifact.archive_download_url, {
+    headers: githubHeaders(token),
+    responseType: "stream",
+    maxRedirects: 5,
+  });
+
+  await new Promise((resolve, reject) => {
+    const writer = fs.createWriteStream(zipPath);
+    downloadRes.data.pipe(writer);
+    writer.on("finish", resolve);
+    writer.on("error", reject);
+  });
+
+  try {
+    const { stdout: listStdout } = await execFileAsync("unzip", ["-Z1", zipPath]);
+    const summaryEntry = listStdout
+      .split("\n")
+      .map((line) => line.trim())
+      .find((entry) => entry.endsWith("pipeline_results_summary.json"));
+
+    if (!summaryEntry) {
+      return {
+        configured: true,
+        message: "Results artifact does not contain pipeline_results_summary.json",
+        run: completedRun,
+        summary: null,
+      };
+    }
+
+    const { stdout: summaryStdout } = await execFileAsync("unzip", ["-p", zipPath, summaryEntry], {
+      maxBuffer: 10 * 1024 * 1024,
+    });
+
+    return {
+      configured: true,
+      message: "Latest pipeline results loaded",
+      run: completedRun,
+      artifact: {
+        id: artifact.id,
+        name: artifact.name,
+        createdAt: artifact.created_at,
+        updatedAt: artifact.updated_at,
+        expired: artifact.expired,
+      },
+      summary: JSON.parse(summaryStdout),
+    };
+  } finally {
+    if (fs.existsSync(zipPath)) {
+      fs.unlinkSync(zipPath);
+    }
+  }
+}
+
 function githubRepoEnv() {
   const owner = process.env.GITHUB_REPO_OWNER;
   const name = process.env.GITHUB_REPO_NAME;
@@ -441,7 +630,7 @@ function githubRepoEnv() {
   return { owner, name, token };
 }
 
-const DEFAULT_RENDER_URL = process.env.RENDER_URL || "https://cs331-ci-cd-pipeline.onrender.com";
+const DEFAULT_RENDER_URL = process.env.RENDER_URL || "https://cicd-demo-31me.onrender.com/";
 
 async function getGitHubFileInfo(owner, name, path, token) {
   const url = `https://api.github.com/repos/${owner}/${name}/contents/${encodeURIComponent(path)}`;
@@ -590,9 +779,6 @@ app.post("/test-sample", authenticateToken, async (req, res) => {
       return res.status(400).json({ error: "Sample name required" });
     }
 
-    // Read sample file
-    const fs = await import('fs');
-    const path = await import('path');
     const samplePath = path.join(process.cwd(), 'samples', sample);
 
     if (!fs.existsSync(samplePath)) {
@@ -602,10 +788,17 @@ app.post("/test-sample", authenticateToken, async (req, res) => {
     const fileContents = fs.readFileSync(samplePath, 'utf-8');
 
     // Run AI testing
-    const { spawn } = await import('child_process');
-    const pythonProcess = spawn('python', ['run_target_orchestrator.py'], {
-      cwd: process.cwd(),
-      stdio: ['pipe', 'pipe', 'pipe']
+    const outputDir = createPipelineOutputDir("samples", sample);
+    const pythonProcess = spawn("python", [
+      "Orchestrator.py",
+      samplePath,
+      "--output-dir",
+      outputDir,
+      "--source-root",
+      path.join(process.cwd(), "samples"),
+    ], {
+      cwd: intelligenceModuleDir,
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
     let output = '';
@@ -621,14 +814,7 @@ app.post("/test-sample", authenticateToken, async (req, res) => {
 
     pythonProcess.on('close', async (code) => {
       try {
-        // Read results from TARGET_CODE directory
-        let jsonResults = {};
-        const resultsPath = path.join(process.cwd(), 'TARGET_CODE', 'pipeline_results_summary.json');
-
-        if (fs.existsSync(resultsPath)) {
-          const resultsContent = fs.readFileSync(resultsPath, 'utf-8');
-          jsonResults = JSON.parse(resultsContent);
-        }
+        const jsonResults = readPipelineSummary(outputDir);
 
         // Save AI test result
         const aiTest = new AITest({
@@ -673,8 +859,6 @@ app.post("/test-sample", authenticateToken, async (req, res) => {
 // Get samples list
 app.get("/samples", authenticateToken, async (req, res) => {
   try {
-    const fs = await import('fs');
-    const path = await import('path');
     const samplesDir = path.join(process.cwd(), 'samples');
 
     if (!fs.existsSync(samplesDir)) {
@@ -697,16 +881,39 @@ app.get("/samples", authenticateToken, async (req, res) => {
 // Admin routes
 app.get("/admin/users", authenticateToken, async (req, res) => {
   try {
-    // Check if user is admin
     if (req.user.position !== 'admin') {
       return res.status(403).json({ error: "Admin access required" });
     }
 
     const users = await User.find({}, '-passwordHash').sort({ createdAt: -1 });
-    res.json(users);
+    res.json({ users });
   } catch (error) {
     console.error("Get users error:", error);
     res.status(500).json({ error: "Failed to get users" });
+  }
+});
+
+app.delete("/admin/users/:id", authenticateToken, async (req, res) => {
+  try {
+    if (req.user.position !== "admin") {
+      return res.status(403).json({ error: "Admin access required" });
+    }
+
+    const userToDelete = await User.findById(req.params.id);
+    if (!userToDelete) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    if (userToDelete.position === "admin") {
+      return res.status(400).json({ error: "Admin accounts cannot be removed" });
+    }
+
+    await User.findByIdAndDelete(req.params.id);
+
+    res.json({ message: "Employee removed successfully" });
+  } catch (error) {
+    console.error("Delete user error:", error);
+    res.status(500).json({ error: "Failed to remove employee" });
   }
 });
 
@@ -890,15 +1097,21 @@ app.get("/pipeline-run-details", async (req, res) => {
     );
 
     const rawJobs = jobsRes.data.jobs || [];
-    const jobs = rawJobs.map((j) => ({
-      id: j.id,
-      name: j.name,
-      status: j.status,
-      conclusion: j.conclusion,
-      startedAt: j.started_at,
-      completedAt: j.completed_at,
-      htmlUrl: j.html_url,
-    }));
+    const jobs = await Promise.all(
+      rawJobs.map(async (j) => {
+        const logs = await fetchJobLogSnippet(owner, name, j.id, token);
+        return {
+          id: j.id,
+          name: j.name,
+          status: j.status,
+          conclusion: j.conclusion,
+          startedAt: j.started_at,
+          completedAt: j.completed_at,
+          htmlUrl: j.html_url,
+          logs,
+        };
+      })
+    );
 
     const workflowComplete = r.status === "completed";
     const allJobsComplete =
@@ -927,6 +1140,16 @@ app.get("/pipeline-run-details", async (req, res) => {
   } catch (err) {
     console.error(err.response?.data || err.message);
     res.status(500).json({ error: "Failed to fetch pipeline run details" });
+  }
+});
+
+app.get("/pipeline-results", authenticateToken, async (req, res) => {
+  try {
+    const payload = await fetchLatestPipelineResultsFromArtifact();
+    res.json(payload);
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+    res.status(500).json({ error: "Failed to fetch pipeline results" });
   }
 });
 
