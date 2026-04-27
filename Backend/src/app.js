@@ -9,7 +9,7 @@ import os from "os";
 import path from "path";
 import { spawn, execFile } from "child_process";
 import { promisify } from "util";
-import { triggerPipeline } from "./triggerPipeline.js";
+import { triggerPipeline } from "./services/pipelineService.js";
 import { connectWithRetry } from "./db.js";
 import { UploadedFile } from "./models/UploadedFile.js";
 import { User } from "./models/User.js";
@@ -664,7 +664,7 @@ async function createOrUpdateGitHubFile(owner, name, path, content, branch, mess
   return response.data;
 }
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8000;
 
 app.post("/run-pipeline", authenticateToken, async (req, res) => {
   try {

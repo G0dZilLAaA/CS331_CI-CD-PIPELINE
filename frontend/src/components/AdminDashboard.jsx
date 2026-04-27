@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { motion } from "framer-motion";
+import Navbar from "./Navbar";
 import "./AdminDashboard.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -10,9 +11,7 @@ function AdminDashboard({ onLogout }) {
   const [removingUserId, setRemovingUserId] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
     setLoading(true);
@@ -88,7 +87,12 @@ function AdminDashboard({ onLogout }) {
   const adminUsers = users.filter((listedUser) => listedUser.position === "admin");
 
   if (loading) {
-    return <div className="loading">Loading admin dashboard...</div>;
+    return (
+      <div className="loading-screen">
+        <div className="spinner" style={{ width: 44, height: 44, borderTopColor: "var(--accent)" }} />
+        <span style={{ color: "var(--text-secondary)", fontSize: 14 }}>Loading admin data…</span>
+      </div>
+    );
   }
 
   return (
@@ -169,7 +173,33 @@ function AdminDashboard({ onLogout }) {
                 </tbody>
               </table>
             </div>
-          </div>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Employee ID</th>
+                  <th>Test Type</th>
+                  <th>Result</th>
+                  <th>Timestamp</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tests.length === 0 ? (
+                  <tr><td colSpan={4} className="table-no-data">No tests found</td></tr>
+                ) : tests.slice(0, 10).map((t) => (
+                  <tr key={t._id}>
+                    <td style={{ fontFamily: "monospace", fontSize: 12 }}>{t.employeeId}</td>
+                    <td>{t.testType}</td>
+                    <td>
+                      <span className={`badge ${RESULT_BADGE[t.result?.toLowerCase()] || "badge-info"}`}>
+                        {t.result}
+                      </span>
+                    </td>
+                    <td>{t.createdAt ? new Date(t.createdAt).toLocaleString() : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </motion.div>
         </div>
       </div>
     </div>
